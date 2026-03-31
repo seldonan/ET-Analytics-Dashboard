@@ -1,0 +1,1346 @@
+<!--
+  ET LinkedIn Analytics Dashboard v5
+  Changes from v4:
+  1. Added Engagement Rate (Organic, Sponsored, Total) to Period Comparison, Trend Vertical Level, Trend Post Level, Scatter Vertical Level, Scatter Post Level
+  2. Removed Page Views and Unique Visitors from dashboard display (data still loaded)
+  3. Updated metric definitions panel (removed Page Views / Unique Visitors, ER already present)
+  4. Updated Post parsing to capture Engagement Rate per post type
+  5. Added avgM() function for averaging ratio metrics
+  6. Added fmtER() for displaying pre-computed % values correctly
+  (All v4 changes retained)
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>ET LinkedIn Analytics Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Inter',sans-serif;background:#F4F6FA;color:#111827;min-height:100vh;}
+@keyframes spin{to{transform:rotate(360deg);}}
+@keyframes slideDown{from{opacity:0;transform:translateY(-8px);}to{opacity:1;transform:translateY(0);}}
+
+input[type="date"]::-webkit-calendar-picker-indicator{filter:invert(0.35);cursor:pointer;opacity:1;}
+input[type="date"]{color-scheme:light;}
+
+/* ── UPLOAD SCREEN ─────────────────────── */
+#uploadScreen{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:2rem;background:linear-gradient(145deg,#fff 0%,#F4F6FA 100%);}
+.ul-brand{font-size:.8rem;font-weight:800;letter-spacing:4px;color:#FF6600;text-transform:uppercase;margin-bottom:.4rem;}
+.ul-title{font-size:2rem;font-weight:800;color:#111827;margin-bottom:.4rem;text-align:center;}
+.ul-sub{font-size:.9rem;color:#6B7280;margin-bottom:2rem;text-align:center;}
+.drop-zone{border:2px dashed #D1D5DB;border-radius:16px;padding:2.5rem 3rem;width:100%;max-width:520px;text-align:center;cursor:pointer;transition:all .2s;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.05);}
+.drop-zone:hover,.drop-zone.over{border-color:#FF6600;background:#FFF8F4;box-shadow:0 4px 16px rgba(255,102,0,.12);}
+.drop-icon{font-size:2.2rem;margin-bottom:.7rem;}
+.drop-text{font-size:.95rem;color:#374151;margin-bottom:.3rem;font-weight:500;}
+.drop-sub{font-size:.8rem;color:#9CA3AF;}
+#fileInput{display:none;}
+.file-list{margin-top:1.4rem;width:100%;max-width:520px;}
+.fi{display:flex;align-items:center;gap:.7rem;padding:.55rem 1rem;background:#fff;border-radius:8px;margin-bottom:.35rem;font-size:.83rem;border:1px solid #E5E7EB;border-left:3px solid #E5E7EB;}
+.fi.ok{border-left-color:#16A34A;background:#F0FDF4;}
+.fi span:first-child{flex:1;color:#374151;}
+.fi-badge{font-size:.72rem;padding:.18rem .55rem;border-radius:4px;font-weight:600;background:#F3F4F6;color:#9CA3AF;}
+.fi.ok .fi-badge{background:#DCFCE7;color:#16A34A;}
+.launch-btn{margin-top:1.4rem;padding:.85rem 2.4rem;background:#FF6600;color:#fff;border:none;border-radius:10px;font-size:.95rem;font-weight:700;cursor:pointer;opacity:.3;pointer-events:none;transition:all .2s;box-shadow:0 2px 8px rgba(255,102,0,.2);}
+.launch-btn.ready{opacity:1;pointer-events:auto;}
+.launch-btn.ready:hover{background:#E55500;box-shadow:0 4px 16px rgba(255,102,0,.35);}
+.ul-prog{margin-top:.8rem;font-size:.83rem;color:#6B7280;min-height:1.2rem;}
+.spin-sm{display:inline-block;width:13px;height:13px;border:2px solid #E5E7EB;border-top-color:#FF6600;border-radius:50%;animation:spin .8s linear infinite;vertical-align:middle;margin-right:.4rem;}
+
+/* ── DASHBOARD SHELL ───────────────────── */
+#dashboard{display:none;flex-direction:column;min-height:100vh;}
+
+/* ── HEADER ────────────────────────────── */
+.header{background:#fff;border-bottom:1px solid #E5E7EB;padding:.75rem 2rem;display:flex;align-items:center;gap:1.2rem;position:sticky;top:0;z-index:200;box-shadow:0 1px 4px rgba(0,0,0,.06);}
+.hbrand{font-size:.78rem;font-weight:800;letter-spacing:4px;color:#FF6600;text-transform:uppercase;}
+.hsep{width:1px;height:18px;background:#E5E7EB;}
+.htitle{font-size:.93rem;font-weight:600;color:#111827;}
+.hspacer{flex:1;}
+.def-btn{display:inline-flex;align-items:center;gap:.4rem;padding:.4rem .95rem;background:#FFF8F4;border:1.5px solid #FED7AA;border-radius:8px;color:#EA580C;font-size:.8rem;font-weight:700;cursor:pointer;font-family:'Inter',sans-serif;transition:all .15s;white-space:nowrap;}
+.def-btn:hover{background:#FFEDD5;border-color:#FF6600;}
+.def-btn.open{background:#FF6600;border-color:#FF6600;color:#fff;}
+
+/* ── METRIC DEFINITIONS PANEL ──────────── */
+.def-panel{background:#FFFBF7;border-bottom:2px solid #FED7AA;overflow:hidden;max-height:0;transition:max-height .35s ease;}
+.def-panel.open{max-height:600px;animation:slideDown .25s ease;}
+.def-inner{padding:1.1rem 2rem 1.4rem;max-width:1700px;margin:0 auto;}
+.def-heading{font-size:.72rem;font-weight:800;color:#EA580C;text-transform:uppercase;letter-spacing:.8px;margin-bottom:.85rem;}
+.def-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:.6rem;}
+.def-item{background:#fff;border:1px solid #FED7AA;border-radius:9px;padding:.7rem .9rem;}
+.def-name{font-size:.75rem;font-weight:700;color:#EA580C;margin-bottom:.2rem;}
+.def-desc{font-size:.74rem;color:#6B7280;line-height:1.55;}
+
+/* ── TABS ──────────────────────────────── */
+.tabs{background:#fff;border-bottom:1px solid #E5E7EB;display:flex;padding:0 2rem;gap:.2rem;position:sticky;top:53px;z-index:150;box-shadow:0 1px 3px rgba(0,0,0,.04);}
+.tab{padding:.8rem 1.4rem;font-size:.87rem;font-weight:500;color:#6B7280;cursor:pointer;border-bottom:3px solid transparent;transition:all .2s;white-space:nowrap;}
+.tab:hover{color:#374151;background:#F9FAFB;}
+.tab.active{color:#FF6600;border-bottom-color:#FF6600;font-weight:700;}
+
+/* ── PAGE CONTAINER ────────────────────── */
+.page{display:none;padding:1.4rem 2rem 3rem;max-width:1800px;margin:0 auto;width:100%;}
+.page.active{display:block;}
+
+/* ── CARD ──────────────────────────────── */
+.card{background:#fff;border:1px solid #E5E7EB;border-radius:12px;padding:1rem 1.2rem;box-shadow:0 1px 3px rgba(0,0,0,.04);}
+
+/* ── FILTER CONTROLS ───────────────────── */
+.fg{display:flex;flex-direction:column;gap:.3rem;}
+.flbl{font-size:.68rem;font-weight:700;color:#9CA3AF;text-transform:uppercase;letter-spacing:.7px;}
+.finput{background:#F9FAFB;border:1px solid #E5E7EB;border-radius:7px;color:#111827;padding:.42rem .7rem;font-size:.83rem;font-family:'Inter',sans-serif;transition:border .15s;}
+.finput:focus{outline:none;border-color:#FF6600;background:#fff;}
+.tg{display:flex;border:1px solid #E5E7EB;border-radius:8px;overflow:hidden;background:#F9FAFB;}
+.tb{padding:.38rem .85rem;font-size:.8rem;font-weight:600;cursor:pointer;background:transparent;color:#6B7280;border:none;transition:all .15s;font-family:'Inter',sans-serif;}
+.tb.active{background:#FF6600;color:#fff;}
+.tb:hover:not(.active){background:#F3F4F6;color:#374151;}
+.msel{background:#F9FAFB;border:1px solid #E5E7EB;border-radius:8px;color:#EA580C;padding:.42rem .7rem;font-size:.88rem;font-weight:600;font-family:'Inter',sans-serif;cursor:pointer;transition:border .15s;}
+.msel:focus{outline:none;border-color:#FF6600;background:#fff;}
+
+/* ── PILLS ─────────────────────────────── */
+.pill-grp{display:flex;gap:.35rem;flex-wrap:wrap;}
+.pill{padding:.28rem .82rem;border-radius:20px;font-size:.76rem;font-weight:600;cursor:pointer;border:1.5px solid #E5E7EB;background:#fff;color:#6B7280;transition:all .15s;white-space:nowrap;font-family:'Inter',sans-serif;}
+.pill.active{border-color:#FF6600;color:#FF6600;background:#FFF8F4;}
+.pill:hover:not(.active){border-color:#D1D5DB;color:#374151;}
+
+/* ── MULTI-SELECT DROPDOWN ─────────────── */
+.ms-wrap{position:relative;}
+.ms-trig{display:flex;align-items:center;gap:.5rem;background:#F9FAFB;border:1px solid #E5E7EB;border-radius:7px;color:#374151;padding:.42rem .7rem;font-size:.81rem;cursor:pointer;white-space:nowrap;min-width:130px;font-family:'Inter',sans-serif;transition:border .15s;}
+.ms-trig:hover{border-color:#D1D5DB;}
+.ms-arr{color:#9CA3AF;font-size:.68rem;margin-left:auto;}
+.ms-drop{position:absolute;top:calc(100% + 4px);left:0;background:#fff;border:1px solid #E5E7EB;border-radius:9px;z-index:400;min-width:165px;box-shadow:0 8px 28px rgba(0,0,0,.1);}
+.ms-acts{display:flex;border-bottom:1px solid #F3F4F6;}
+.ms-acts button{flex:1;padding:.38rem;font-size:.73rem;font-weight:600;cursor:pointer;background:transparent;border:none;color:#6B7280;font-family:'Inter',sans-serif;}
+.ms-acts button:hover{color:#FF6600;background:#FFF8F4;}
+.ms-list{padding:.35rem;max-height:200px;overflow-y:auto;}
+.ms-list label{display:flex;align-items:center;gap:.45rem;padding:.28rem .45rem;font-size:.8rem;cursor:pointer;border-radius:5px;color:#374151;white-space:nowrap;}
+.ms-list label:hover{background:#F9FAFB;}
+.ms-list input[type=checkbox]{accent-color:#FF6600;width:13px;height:13px;}
+
+/* ── SECTION TOGGLE TABS ───────────────── */
+.sec-tabs{display:flex;gap:.5rem;margin-bottom:1.1rem;}
+.sec-tab{padding:.48rem 1.4rem;border-radius:8px;font-size:.87rem;font-weight:700;cursor:pointer;background:#fff;color:#6B7280;border:2px solid #E5E7EB;transition:all .2s;font-family:'Inter',sans-serif;}
+.sec-tab.active{border-color:#FF6600;color:#FF6600;background:#FFF8F4;}
+.sec-tab:hover:not(.active){border-color:#D1D5DB;color:#374151;}
+
+/* ── FILTER BAR ROW ────────────────────── */
+.fbar-row{display:flex;flex-wrap:wrap;gap:.85rem;align-items:flex-end;}
+.fbar-row .fg.full{flex-basis:100%;}
+
+/* ── CHART WRAP ────────────────────────── */
+.chart-wrap{background:#fff;border:1px solid #E5E7EB;border-radius:12px;padding:1rem 1.1rem;box-shadow:0 1px 3px rgba(0,0,0,.04);}
+.chart-cv{position:relative;height:350px;}
+
+/* ── SCATTER ───────────────────────────── */
+.sc-lvl{display:flex;gap:.5rem;margin-bottom:1.1rem;}
+.lvl-btn{padding:.48rem 1.4rem;border-radius:8px;font-size:.87rem;font-weight:700;cursor:pointer;border:2px solid #E5E7EB;background:#fff;color:#6B7280;transition:all .2s;font-family:'Inter',sans-serif;}
+.lvl-btn.active{border-color:#FF6600;color:#FF6600;background:#FFF8F4;}
+.sc-fbar{background:#fff;border:1px solid #E5E7EB;border-radius:12px;padding:.9rem 1.2rem;margin-bottom:1rem;box-shadow:0 1px 3px rgba(0,0,0,.04);}
+.sc-fbar-row{display:flex;flex-wrap:wrap;gap:.85rem;align-items:flex-end;}
+.sc-fbar-row .fg.full{flex-basis:100%;}
+.sc-chart-panel{background:#fff;border:1px solid #E5E7EB;border-radius:12px;padding:1rem;box-shadow:0 1px 3px rgba(0,0,0,.04);}
+.ax-panel{display:flex;align-items:stretch;gap:.75rem;}
+.y-ax-wrap{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.4rem;padding-right:.5rem;border-right:1px solid #E5E7EB;}
+.y-ax-lbl{font-size:.63rem;font-weight:700;color:#9CA3AF;text-transform:uppercase;letter-spacing:.6px;writing-mode:vertical-rl;transform:rotate(180deg);}
+.ax-sel-btn{background:#FFF8F4;border:1px solid #FED7AA;border-radius:7px;color:#EA580C;padding:.4rem .65rem;font-size:.79rem;font-weight:600;font-family:'Inter',sans-serif;cursor:pointer;writing-mode:vertical-rl;transform:rotate(180deg);}
+.ax-sel-btn:focus{outline:none;border-color:#FF6600;}
+.chart-and-x{flex:1;display:flex;flex-direction:column;gap:.5rem;}
+.x-ax-wrap{display:flex;align-items:center;justify-content:center;gap:.5rem;padding-top:.4rem;border-top:1px solid #E5E7EB;}
+.x-ax-lbl{font-size:.63rem;font-weight:700;color:#9CA3AF;text-transform:uppercase;letter-spacing:.6px;}
+.x-ax-sel{background:#FFF8F4;border:1px solid #FED7AA;border-radius:7px;color:#EA580C;padding:.4rem .65rem;font-size:.79rem;font-weight:600;font-family:'Inter',sans-serif;cursor:pointer;}
+.x-ax-sel:focus{outline:none;border-color:#FF6600;}
+.sc-canvas-wrap{position:relative;height:390px;}
+.leg-area{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.8rem;}
+.leg-item{display:flex;align-items:center;gap:.4rem;font-size:.76rem;color:#374151;}
+.leg-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
+
+/* ── PAGE 1 – COMPARISON TABLE ─────────── */
+.tbl-outer{overflow-x:auto;}
+.ctbl{width:100%;border-collapse:separate;border-spacing:0;font-size:.84rem;}
+.ctbl th{background:#F9FAFB;color:#6B7280;font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.45px;padding:.65rem .95rem;text-align:right;border-bottom:2px solid #E5E7EB;white-space:nowrap;}
+.ctbl th:first-child{text-align:left;min-width:140px;}
+.ctbl td{padding:.72rem .95rem;border-bottom:1px solid #F3F4F6;text-align:right;vertical-align:middle;}
+.ctbl tr:hover td{background:#FFFBF7;}
+.ctbl td:first-child{text-align:left;white-space:nowrap;}
+.ctbl .val{font-size:.9rem;font-weight:700;color:#111827;}
+
+/* ── VERTICAL BADGES ───────────────────── */
+.vtag{display:inline-block;padding:.22rem .72rem;border-radius:20px;font-size:.72rem;font-weight:700;white-space:nowrap;}
+.vet {background:rgba(234,88,12,.1);color:#EA580C;}
+.vci {background:rgba(37,99,235,.1);color:#2563EB;}
+.vgc {background:rgba(22,163,74,.1);color:#16A34A;}
+.vhr {background:rgba(219,39,119,.1);color:#DB2777;}
+.vcio{background:rgba(202,138,4,.1);color:#CA8A04;}
+.vbe {background:rgba(124,58,237,.1);color:#7C3AED;}
+.vbf {background:rgba(14,116,144,.1);color:#0E7490;}
+.vedu{background:rgba(21,128,61,.1);color:#15803D;}
+
+/* ── SUPPORTING TABLES ─────────────────── */
+.stbl-wrap{background:#fff;border:1px solid #E5E7EB;border-radius:12px;padding:1rem 1.2rem;margin-bottom:1rem;box-shadow:0 1px 3px rgba(0,0,0,.04);}
+.stbl-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem;}
+.stbl-title{font-size:.76rem;font-weight:700;color:#6B7280;text-transform:uppercase;letter-spacing:.6px;}
+.csv-btn{display:inline-flex;align-items:center;gap:.35rem;padding:.32rem .9rem;background:#F9FAFB;border:1px solid #E5E7EB;border-radius:6px;color:#374151;font-size:.75rem;font-weight:700;cursor:pointer;font-family:'Inter',sans-serif;transition:all .15s;}
+.csv-btn:hover{background:#FFF8F4;border-color:#FED7AA;color:#EA580C;}
+.stbl-scroll{overflow-x:auto;max-height:380px;overflow-y:auto;}
+.stbl{width:100%;border-collapse:separate;border-spacing:0;font-size:.8rem;}
+.stbl th{background:#F9FAFB;color:#6B7280;font-size:.67rem;font-weight:700;text-transform:uppercase;letter-spacing:.5px;padding:.58rem .85rem;text-align:right;border-bottom:2px solid #E5E7EB;position:sticky;top:0;z-index:2;cursor:pointer;white-space:nowrap;user-select:none;transition:color .15s;}
+.stbl th:hover{color:#FF6600;}
+.stbl th.sort-asc::after{content:' ↑';color:#FF6600;}
+.stbl th.sort-desc::after{content:' ↓';color:#FF6600;}
+.stbl th:first-child{text-align:left;}
+.stbl td{padding:.6rem .85rem;border-bottom:1px solid #F9FAFB;text-align:right;vertical-align:middle;color:#374151;white-space:nowrap;}
+.stbl tr:hover td{background:#FFFBF7;}
+.stbl td:first-child{text-align:left;}
+.stbl td.td-label{font-weight:600;color:#374151;}
+.stbl td.td-name{font-weight:500;color:#111827;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left;}
+.stbl td.td-link{text-align:left;}
+.stbl td.td-link a{color:#FF6600;text-decoration:none;font-size:.75rem;font-weight:600;}
+.stbl td.td-link a:hover{text-decoration:underline;}
+.stbl td.num{font-weight:600;color:#111827;}
+.stbl td.td-vert{font-weight:700;font-size:.75rem;}
+
+/* ── TOOLTIP ───────────────────────────── */
+.sc-tip{position:fixed;background:#fff;border:1.5px solid #FF6600;border-radius:10px;padding:.72rem .95rem;font-size:.8rem;color:#111827;pointer-events:auto;display:none;max-width:260px;z-index:999;box-shadow:0 8px 28px rgba(0,0,0,.12);}
+.sc-tip .tr{color:#6B7280;margin-bottom:.12rem;}
+.sc-tip .tr span{color:#111827;font-weight:600;}
+.sc-tip a{color:#FF6600;text-decoration:none;font-size:.8rem;font-weight:600;margin-top:.4rem;display:inline-flex;align-items:center;gap:.3rem;padding:.3rem .6rem;background:#FFF8F4;border:1px solid #FED7AA;border-radius:6px;}
+.sc-tip a:hover{background:#FFEDD5;}
+.sc-tip .tip-close{position:absolute;top:.35rem;right:.5rem;cursor:pointer;color:#9CA3AF;font-size:.9rem;}
+.sc-tip .tip-close:hover{color:#FF6600;}
+
+/* ── SCROLLBAR ─────────────────────────── */
+::-webkit-scrollbar{width:5px;height:5px;}
+::-webkit-scrollbar-track{background:#F9FAFB;}
+::-webkit-scrollbar-thumb{background:#D1D5DB;border-radius:3px;}
+::-webkit-scrollbar-thumb:hover{background:#9CA3AF;}
+
+@media(max-width:900px){.page{padding:1rem 1rem 3rem;}.fbar-row{gap:.6rem;}.def-grid{grid-template-columns:1fr 1fr;}}
+@media(max-width:600px){.def-grid{grid-template-columns:1fr;}}
+
+/* ── AI CHATBOT ─────────────────────────── */
+#chatBtn{position:fixed;bottom:1.5rem;right:1.5rem;width:52px;height:52px;border-radius:50%;background:#FF6600;border:none;cursor:pointer;box-shadow:0 4px 16px rgba(255,102,0,.4);display:flex;align-items:center;justify-content:center;font-size:1.4rem;z-index:900;transition:all .2s;}
+#chatBtn:hover{background:#E55500;transform:scale(1.08);}
+#chatPanel{position:fixed;bottom:5rem;right:1.5rem;width:380px;max-height:560px;background:#fff;border:1.5px solid #E5E7EB;border-radius:16px;box-shadow:0 8px 32px rgba(0,0,0,.12);display:none;flex-direction:column;z-index:900;overflow:hidden;}
+#chatPanel.open{display:flex;}
+.cp-head{background:#FF6600;padding:.85rem 1rem;display:flex;align-items:center;gap:.6rem;border-radius:14px 14px 0 0;}
+.cp-head-icon{font-size:1.1rem;}
+.cp-head-title{color:#fff;font-size:.9rem;font-weight:700;flex:1;}
+.cp-head-sub{color:rgba(255,255,255,.75);font-size:.72rem;}
+.cp-close{background:none;border:none;color:rgba(255,255,255,.8);font-size:1.1rem;cursor:pointer;padding:0 .2rem;line-height:1;}
+.cp-close:hover{color:#fff;}
+.cp-msgs{flex:1;overflow-y:auto;padding:.85rem 1rem;display:flex;flex-direction:column;gap:.65rem;min-height:200px;}
+.msg{max-width:88%;padding:.6rem .85rem;border-radius:12px;font-size:.82rem;line-height:1.55;}
+.msg.user{background:#FF6600;color:#fff;align-self:flex-end;border-radius:12px 12px 3px 12px;}
+.msg.bot{background:#F9FAFB;color:#111827;align-self:flex-start;border-radius:12px 12px 12px 3px;border:1px solid #E5E7EB;white-space:pre-wrap;}
+.msg.bot.thinking{color:#9CA3AF;font-style:italic;}
+.cp-input-row{display:flex;gap:.5rem;padding:.75rem 1rem;border-top:1px solid #F3F4F6;background:#fff;}
+#chatInput{flex:1;border:1.5px solid #E5E7EB;border-radius:8px;padding:.45rem .7rem;font-size:.83rem;font-family:'Inter',sans-serif;outline:none;resize:none;height:38px;max-height:80px;overflow-y:auto;}
+#chatInput:focus{border-color:#FF6600;}
+#chatSend{background:#FF6600;border:none;border-radius:8px;color:#fff;padding:.45rem .85rem;font-size:.82rem;font-weight:700;cursor:pointer;font-family:'Inter',sans-serif;white-space:nowrap;transition:background .15s;}
+#chatSend:hover{background:#E55500;}
+#chatSend:disabled{background:#FED7AA;cursor:not-allowed;}
+.cp-context{padding:.45rem 1rem;background:#FFFBF7;border-top:1px solid #FEF3C7;font-size:.7rem;color:#92400E;display:flex;align-items:center;gap:.3rem;}
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════
+     UPLOAD SCREEN
+══════════════════════════════════════════ -->
+<div id="uploadScreen">
+  <div class="ul-brand">Economic Times</div>
+  <div class="ul-title">LinkedIn Analytics Dashboard</div>
+  <div class="ul-sub">Select all 6 CSV data files to begin · Posts file can be a ZIP</div>
+  <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+    <div class="drop-icon">📂</div>
+    <div class="drop-text">Click to select files or drag &amp; drop here</div>
+    <div class="drop-sub">Select all 6 files at once · ZIP supported for Posts file</div>
+  </div>
+  <input type="file" id="fileInput" multiple accept=".csv,.zip"/>
+  <div class="file-list">
+    <div class="fi" id="fi-date"><span>dim_dateF.csv</span><span class="fi-badge">Waiting</span></div>
+    <div class="fi" id="fi-vert"><span>dim_verticalF.csv</span><span class="fi-badge">Waiting</span></div>
+    <div class="fi" id="fi-foll"><span>fact_followersF.csv</span><span class="fi-badge">Waiting</span></div>
+    <div class="fi" id="fi-met"><span>fact_metricsF.csv</span><span class="fi-badge">Waiting</span></div>
+    <div class="fi" id="fi-post"><span>fact_postsF.csv (or .zip)</span><span class="fi-badge">Waiting</span></div>
+    <div class="fi" id="fi-vis"><span>fact_visitorsF.csv</span><span class="fi-badge">Waiting</span></div>
+  </div>
+  <button class="launch-btn" id="launchBtn" onclick="doLaunch()">Launch Dashboard →</button>
+  <div class="ul-prog" id="ulProg"></div>
+</div>
+
+<!-- ══════════════════════════════════════
+     DASHBOARD
+══════════════════════════════════════════ -->
+<div id="dashboard">
+
+  <!-- HEADER -->
+  <div class="header">
+    <span class="hbrand">ET</span>
+    <div class="hsep"></div>
+    <span class="htitle">LinkedIn Analytics</span>
+    <div class="hspacer"></div>
+    <button class="def-btn" id="defToggleBtn" onclick="toggleDefs()">ℹ️ Metric Definitions</button>
+  </div>
+
+  <!-- METRIC DEFINITIONS PANEL (collapsible) -->
+  <div class="def-panel" id="defPanel">
+    <div class="def-inner">
+      <div class="def-heading">LinkedIn Metric Definitions</div>
+      <div class="def-grid">
+        <div class="def-item">
+          <div class="def-name">Impressions</div>
+          <div class="def-desc">The number of times your post was shown on LinkedIn. This number is an estimate and may not be precise.</div>
+        </div>
+        <div class="def-item">
+          <div class="def-name">Clicks</div>
+          <div class="def-desc">Clicks on your content, company name, or logo by a signed-in member. Excludes interactions (reposts, reactions, comments). Multiple clicks on a document count as one.</div>
+        </div>
+        <div class="def-item">
+          <div class="def-name">Reactions, Comments &amp; Reposts</div>
+          <div class="def-desc">The number of reactions, comments, and times content was shared by members, including Direct Sponsored Content and video posts.</div>
+        </div>
+        <div class="def-item">
+          <div class="def-name">CTR (Click-Through Rate)</div>
+          <div class="def-desc">CTR = (Clicks ÷ Impressions) × 100. Shows how often viewers click after seeing your post.</div>
+        </div>
+        <div class="def-item">
+          <div class="def-name">Engagement Rate (ER)</div>
+          <div class="def-desc">Ratio of total interactions (clicks + reactions + comments + shares + follows) per impression on your post.</div>
+        </div>
+        <div class="def-item">
+          <div class="def-name">Total Absolute Followers</div>
+          <div class="def-desc">Total number of followers at the day of data export. Reconstructed backwards using daily follower gain data.</div>
+        </div>
+        <div class="def-item">
+          <div class="def-name">Followers Gained</div>
+          <div class="def-desc">Net new followers gained during the selected period. Includes organic, sponsored, and auto-invited followers.</div>
+        </div>
+        <div class="def-item">
+          <div class="def-name">Followers Gained / Day</div>
+          <div class="def-desc">Average daily follower growth = total followers gained ÷ number of days in the selected period.</div>
+        </div>
+        <div class="def-item">
+          <div class="def-name">Count of Posts</div>
+          <div class="def-desc">Total number of posts published during the selected period (Audience = All followers).</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB NAV -->
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab(1)">📊 Period Comparison</div>
+    <div class="tab" onclick="switchTab(2)">📈 Trend Analysis</div>
+    <div class="tab" onclick="switchTab(3)">⬤ Scatter</div>
+  </div>
+
+  <!-- ════════════════════════════════════
+       PAGE 1 — PERIOD COMPARISON
+       Rows = Verticals | Cols = Metrics
+  ════════════════════════════════════════ -->
+  <div class="page active" id="page1">
+
+    <!-- Filters -->
+    <div class="card" style="margin-bottom:1rem;">
+      <div style="display:flex;flex-wrap:wrap;gap:.75rem;align-items:flex-end;">
+        <div class="fg">
+          <div class="flbl">Period Start</div>
+          <input type="date" id="p1s" class="finput" onchange="renderP1()"/>
+        </div>
+        <div class="fg">
+          <div class="flbl">Period End</div>
+          <input type="date" id="p1e" class="finput" onchange="renderP1()"/>
+        </div>
+        <div style="margin-left:auto;align-self:flex-end;">
+          <button class="csv-btn" onclick="downloadCSV('p1tbl','period_comparison.csv')">⬇ Download CSV</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- TABLE: Rows=Verticals, Cols=Metrics -->
+    <div class="stbl-wrap">
+      <div class="stbl-header">
+        <span class="stbl-title">📋 All Verticals × All Metrics</span>
+      </div>
+      <div class="tbl-outer">
+        <table class="ctbl" id="p1tbl">
+          <thead id="p1head"></thead>
+          <tbody id="p1body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════
+       PAGE 2 — TREND ANALYSIS
+  ════════════════════════════════════════ -->
+  <div class="page" id="page2">
+    <div class="sec-tabs">
+      <button class="sec-tab active" id="stabA" onclick="switchSec('A')">📄 Vertical Level</button>
+      <button class="sec-tab" id="stabB" onclick="switchSec('B')">📝 Post Level</button>
+    </div>
+
+    <!-- SECTION A: Vertical Level -->
+    <div id="secA">
+      <!-- Filters -->
+      <div class="card" style="margin-bottom:1rem;">
+        <div class="fbar-row">
+          <div class="fg">
+            <div class="flbl">Period</div>
+            <div style="display:flex;gap:.4rem;align-items:center;">
+              <input type="date" id="p2as" class="finput" onchange="renderA()"/>
+              <span style="color:#D1D5DB;">→</span>
+              <input type="date" id="p2ae" class="finput" onchange="renderA()"/>
+            </div>
+          </div>
+          <div class="fg">
+            <div class="flbl">Aggregation</div>
+            <div class="tg">
+              <button class="tb active" data-agg="day" onclick="setAggA(this)">Day</button>
+              <button class="tb" data-agg="week" onclick="setAggA(this)">Week</button>
+              <button class="tb" data-agg="month" onclick="setAggA(this)">Month</button>
+            </div>
+          </div>
+          <div class="fg">
+            <div class="flbl">Chart Type</div>
+            <div class="tg">
+              <button class="tb active" data-ct="bar" onclick="setChartType(this)">Bar</button>
+              <button class="tb" data-ct="line" onclick="setChartType(this)">Line</button>
+            </div>
+          </div>
+          <div class="fg">
+            <div class="flbl">Scale</div>
+            <div class="tg">
+              <button class="tb active" data-loga="0" onclick="setLogA(this)">Linear</button>
+              <button class="tb" data-loga="1" onclick="setLogA(this)">Log</button>
+            </div>
+          </div>
+          <div class="fg">
+            <div class="flbl">Metric</div>
+            <select class="msel" id="p2ametric" onchange="renderA()">
+              <option value="impressions">Impressions</option>
+              <option value="clicks">Clicks</option>
+              <option value="reactions">Reactions</option>
+              <option value="comments">Comments</option>
+              <option value="reposts">Reposts</option>
+              <option value="followersGained">Followers Gained</option>
+              <option value="followersPerDay">Followers Gained / Day</option>
+              <option value="absFollowers">Total Absolute Followers</option>
+              <option value="postCount">Count of Posts</option>
+              <option value="erOrganic">Organic Engagement Rate</option>
+              <option value="erSponsored">Sponsored Engagement Rate</option>
+              <option value="erTotal">Total Engagement Rate</option>
+            </select>
+          </div>
+          <div class="fg">
+            <div class="flbl">Day of Week</div>
+            <div class="ms-wrap">
+              <button class="ms-trig" onclick="toggleDrop('dowDropA')"><span id="dowLblA">All Days</span><span class="ms-arr">▾</span></button>
+              <div class="ms-drop" id="dowDropA" style="display:none;">
+                <div class="ms-acts">
+                  <button onclick="msAll('p2adow','dowLblA','dowDropA','renderA')">All</button>
+                  <button onclick="msNone('p2adow','dowLblA','renderA')">None</button>
+                </div>
+                <div class="ms-list" id="p2adow">
+                  <label><input type="checkbox" value="Monday" checked onchange="updLbl('p2adow','dowLblA');renderA()"/>Mon</label>
+                  <label><input type="checkbox" value="Tuesday" checked onchange="updLbl('p2adow','dowLblA');renderA()"/>Tue</label>
+                  <label><input type="checkbox" value="Wednesday" checked onchange="updLbl('p2adow','dowLblA');renderA()"/>Wed</label>
+                  <label><input type="checkbox" value="Thursday" checked onchange="updLbl('p2adow','dowLblA');renderA()"/>Thu</label>
+                  <label><input type="checkbox" value="Friday" checked onchange="updLbl('p2adow','dowLblA');renderA()"/>Fri</label>
+                  <label><input type="checkbox" value="Saturday" checked onchange="updLbl('p2adow','dowLblA');renderA()"/>Sat</label>
+                  <label><input type="checkbox" value="Sunday" checked onchange="updLbl('p2adow','dowLblA');renderA()"/>Sun</label>
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- Verticals full row -->
+          <div class="fg full">
+            <div class="flbl">Verticals</div>
+            <div class="pill-grp" id="p2averts">
+              <button class="pill active" data-v="ETEntrepreneur" onclick="togglePill(this,'p2averts','renderA')">ETEntrepreneur</button>
+              <button class="pill active" data-v="ETCISO" onclick="togglePill(this,'p2averts','renderA')">ETCISO</button>
+              <button class="pill active" data-v="ETGCCWorld" onclick="togglePill(this,'p2averts','renderA')">ETGCCWorld</button>
+              <button class="pill active" data-v="ETHRWorld" onclick="togglePill(this,'p2averts','renderA')">ETHRWorld</button>
+              <button class="pill active" data-v="ETCIO" onclick="togglePill(this,'p2averts','renderA')">ETCIO</button>
+              <button class="pill active" data-v="ETBrandEquity" onclick="togglePill(this,'p2averts','renderA')">ETBrandEquity</button>
+              <button class="pill active" data-v="ETBFSI" onclick="togglePill(this,'p2averts','renderA')">ETBFSI</button>
+              <button class="pill active" data-v="ETEducation" onclick="togglePill(this,'p2averts','renderA')">ETEducation</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TABLE FIRST -->
+      <div class="stbl-wrap">
+        <div class="stbl-header">
+          <span class="stbl-title">📋 Data Table</span>
+          <button class="csv-btn" onclick="downloadCSV('tblA','trend_vertical_level.csv')">⬇ Download CSV</button>
+        </div>
+        <div class="stbl-scroll"><table class="stbl" id="tblA"><thead></thead><tbody></tbody></table></div>
+      </div>
+
+      <!-- CHART BELOW -->
+      <div class="chart-wrap"><div class="chart-cv"><canvas id="chartA"></canvas></div></div>
+    </div>
+
+    <!-- SECTION B: Post Level -->
+    <div id="secB" style="display:none;">
+      <!-- Filters -->
+      <div class="card" style="margin-bottom:1rem;">
+        <div class="fbar-row">
+          <div class="fg">
+            <div class="flbl">Period</div>
+            <div style="display:flex;gap:.4rem;align-items:center;">
+              <input type="date" id="p2bs" class="finput" onchange="renderB()"/>
+              <span style="color:#D1D5DB;">→</span>
+              <input type="date" id="p2be" class="finput" onchange="renderB()"/>
+            </div>
+          </div>
+          <div class="fg">
+            <div class="flbl">Aggregation</div>
+            <div class="tg">
+              <button class="tb active" data-agg="day" onclick="setAggB(this)">Day</button>
+              <button class="tb" data-agg="week" onclick="setAggB(this)">Week</button>
+              <button class="tb" data-agg="month" onclick="setAggB(this)">Month</button>
+            </div>
+          </div>
+          <div class="fg">
+            <div class="flbl">Scale</div>
+            <div class="tg">
+              <button class="tb active" data-logb="0" onclick="setLogB(this)">Linear</button>
+              <button class="tb" data-logb="1" onclick="setLogB(this)">Log</button>
+            </div>
+          </div>
+          <div class="fg">
+            <div class="flbl">Metric</div>
+            <select class="msel" id="p2bmetric" onchange="renderB()">
+              <option value="postImpressions">Post Impressions</option>
+              <option value="postClicks">Post Clicks</option>
+              <option value="postLikes">Post Likes</option>
+              <option value="postComments">Post Comments</option>
+              <option value="postReposts">Post Reposts</option>
+              <option value="postCTR">Post CTR</option>
+              <option value="postCount">Count of Posts</option>
+              <option value="postERorganic">Organic Post Engagement Rate</option>
+              <option value="postERsponsored">Sponsored Post Engagement Rate</option>
+              <option value="postERtotal">Total Post Engagement Rate</option>
+            </select>
+          </div>
+          <div class="fg">
+            <div class="flbl">Post Category</div>
+            <div class="ms-wrap">
+              <button class="ms-trig" onclick="toggleDrop('catDropB')"><span id="catLblB">All Categories</span><span class="ms-arr">▾</span></button>
+              <div class="ms-drop" id="catDropB" style="display:none;">
+                <div class="ms-acts">
+                  <button onclick="msAll('p2bcats','catLblB','catDropB','renderB')">All</button>
+                  <button onclick="msNone('p2bcats','catLblB','renderB')">None</button>
+                </div>
+                <div class="ms-list" id="p2bcats"></div>
+              </div>
+            </div>
+          </div>
+          <!-- Verticals full row -->
+          <div class="fg full">
+            <div class="flbl">Verticals</div>
+            <div class="pill-grp" id="p2bverts">
+              <button class="pill active" data-v="ETEntrepreneur" onclick="togglePill(this,'p2bverts','renderB')">ETEntrepreneur</button>
+              <button class="pill active" data-v="ETCISO" onclick="togglePill(this,'p2bverts','renderB')">ETCISO</button>
+              <button class="pill active" data-v="ETGCCWorld" onclick="togglePill(this,'p2bverts','renderB')">ETGCCWorld</button>
+              <button class="pill active" data-v="ETHRWorld" onclick="togglePill(this,'p2bverts','renderB')">ETHRWorld</button>
+              <button class="pill active" data-v="ETCIO" onclick="togglePill(this,'p2bverts','renderB')">ETCIO</button>
+              <button class="pill active" data-v="ETBrandEquity" onclick="togglePill(this,'p2bverts','renderB')">ETBrandEquity</button>
+              <button class="pill active" data-v="ETBFSI" onclick="togglePill(this,'p2bverts','renderB')">ETBFSI</button>
+              <button class="pill active" data-v="ETEducation" onclick="togglePill(this,'p2bverts','renderB')">ETEducation</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- TABLE FIRST: Aggregated post-level data by period -->
+      <div class="stbl-wrap">
+        <div class="stbl-header">
+          <span class="stbl-title">📋 Post Metrics by Period — click headers to sort</span>
+          <button class="csv-btn" onclick="downloadCSV('tblB','trend_post_level.csv')">⬇ Download CSV</button>
+        </div>
+        <div class="stbl-scroll"><table class="stbl" id="tblB"><thead></thead><tbody></tbody></table></div>
+      </div>
+
+      <!-- CHART BELOW -->
+      <div class="chart-wrap"><div class="chart-cv"><canvas id="chartB"></canvas></div></div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════
+       PAGE 3 — SCATTER
+  ════════════════════════════════════════ -->
+  <div class="page" id="page3">
+    <div class="sc-lvl">
+      <button class="lvl-btn active" id="lvlPost" onclick="setLvl('post')">⬤ Post Level</button>
+      <button class="lvl-btn" id="lvlVert" onclick="setLvl('vert')">⬤ Vertical Level</button>
+    </div>
+
+    <!-- POST LEVEL -->
+    <div id="scPost">
+      <!-- Filters -->
+      <div class="sc-fbar">
+        <div class="sc-fbar-row">
+          <div class="fg">
+            <div class="flbl">Period</div>
+            <div style="display:flex;gap:.4rem;align-items:center;">
+              <input type="date" id="p3ps" class="finput" onchange="renderSP()"/>
+              <span style="color:#D1D5DB;">→</span>
+              <input type="date" id="p3pe" class="finput" onchange="renderSP()"/>
+            </div>
+          </div>
+          <div class="fg">
+            <div class="flbl">Post Category</div>
+            <div class="ms-wrap">
+              <button class="ms-trig" onclick="toggleDrop('catDropP3')"><span id="catLblP3">All Categories</span><span class="ms-arr">▾</span></button>
+              <div class="ms-drop" id="catDropP3" style="display:none;">
+                <div class="ms-acts">
+                  <button onclick="msAll('p3pcats','catLblP3','catDropP3','renderSP')">All</button>
+                  <button onclick="msNone('p3pcats','catLblP3','renderSP')">None</button>
+                </div>
+                <div class="ms-list" id="p3pcats"></div>
+              </div>
+            </div>
+          </div>
+          <div class="fg">
+            <div class="flbl">Post Type</div>
+            <div class="tg">
+              <button class="tb active" data-pt="all" onclick="setPT(this)">All</button>
+              <button class="tb" data-pt="Organic" onclick="setPT(this)">Organic</button>
+              <button class="tb" data-pt="Sponsored" onclick="setPT(this)">Sponsored</button>
+            </div>
+          </div>
+          <div class="fg">
+            <div class="flbl">Scale</div>
+            <div class="tg">
+              <button class="tb active" data-log="0" onclick="setScLog('post',this)">Linear</button>
+              <button class="tb" data-log="1" onclick="setScLog('post',this)">Log</button>
+            </div>
+          </div>
+          <!-- Verticals full row -->
+          <div class="fg full">
+            <div class="flbl">Verticals</div>
+            <div class="pill-grp" id="p3pverts">
+              <button class="pill active" data-v="ETEntrepreneur" onclick="togglePill(this,'p3pverts','renderSP')">ETEntrepreneur</button>
+              <button class="pill active" data-v="ETCISO" onclick="togglePill(this,'p3pverts','renderSP')">ETCISO</button>
+              <button class="pill active" data-v="ETGCCWorld" onclick="togglePill(this,'p3pverts','renderSP')">ETGCCWorld</button>
+              <button class="pill active" data-v="ETHRWorld" onclick="togglePill(this,'p3pverts','renderSP')">ETHRWorld</button>
+              <button class="pill active" data-v="ETCIO" onclick="togglePill(this,'p3pverts','renderSP')">ETCIO</button>
+              <button class="pill active" data-v="ETBrandEquity" onclick="togglePill(this,'p3pverts','renderSP')">ETBrandEquity</button>
+              <button class="pill active" data-v="ETBFSI" onclick="togglePill(this,'p3pverts','renderSP')">ETBFSI</button>
+              <button class="pill active" data-v="ETEducation" onclick="togglePill(this,'p3pverts','renderSP')">ETEducation</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TABLE: Post Performance — FIRST -->
+      <div class="stbl-wrap">
+        <div class="stbl-header">
+          <span class="stbl-title">📋 Post Performance — click headers to sort</span>
+          <button class="csv-btn" onclick="downloadCSV('tblPost','post_performance.csv')">⬇ Download CSV</button>
+        </div>
+        <div class="stbl-scroll"><table class="stbl" id="tblPost"><thead></thead><tbody></tbody></table></div>
+      </div>
+
+      <!-- TABLE: Vertical Summary — SECOND -->
+      <div class="stbl-wrap">
+        <div class="stbl-header">
+          <span class="stbl-title">📊 Vertical Summary</span>
+          <button class="csv-btn" onclick="downloadCSV('tblVertPost','vertical_summary.csv')">⬇ Download CSV</button>
+        </div>
+        <div class="stbl-scroll"><table class="stbl" id="tblVertPost"><thead></thead><tbody></tbody></table></div>
+      </div>
+
+      <!-- CHART: Scatter — BELOW tables -->
+      <div class="sc-chart-panel">
+        <div class="ax-panel">
+          <div class="y-ax-wrap">
+            <div class="y-ax-lbl">Y Axis</div>
+            <select class="ax-sel-btn" id="p3py" onchange="renderSP()">
+              <option value="impressions">Post Impressions</option>
+              <option value="clicks">Post Clicks</option>
+              <option value="likes">Post Likes</option>
+              <option value="comments">Post Comments</option>
+              <option value="reposts">Post Reposts</option>
+              <option value="ctr" selected>Post CTR</option>
+              <option value="erOrg">Organic Post ER</option>
+              <option value="erSpo">Sponsored Post ER</option>
+              <option value="erPost">Total Post ER</option>
+            </select>
+          </div>
+          <div class="chart-and-x">
+            <div class="sc-canvas-wrap"><canvas id="chartPost"></canvas></div>
+            <div class="x-ax-wrap">
+              <div class="x-ax-lbl">X Axis</div>
+              <select class="x-ax-sel" id="p3px" onchange="renderSP()">
+                <option value="impressions" selected>Post Impressions</option>
+                <option value="clicks">Post Clicks</option>
+                <option value="likes">Post Likes</option>
+                <option value="comments">Post Comments</option>
+                <option value="reposts">Post Reposts</option>
+                <option value="ctr">Post CTR</option>
+                <option value="erOrg">Organic Post ER</option>
+                <option value="erSpo">Sponsored Post ER</option>
+                <option value="erPost">Total Post ER</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="leg-area" id="postLeg"></div>
+      </div>
+    </div><!-- /scPost -->
+
+    <!-- VERTICAL LEVEL -->
+    <div id="scVert" style="display:none;">
+      <!-- Filters -->
+      <div class="sc-fbar">
+        <div class="sc-fbar-row">
+          <div class="fg">
+            <div class="flbl">Period</div>
+            <div style="display:flex;gap:.4rem;align-items:center;">
+              <input type="date" id="p3vs" class="finput" onchange="renderSV()"/>
+              <span style="color:#D1D5DB;">→</span>
+              <input type="date" id="p3ve" class="finput" onchange="renderSV()"/>
+            </div>
+          </div>
+          <div class="fg">
+            <div class="flbl">Day of Week</div>
+            <div class="ms-wrap">
+              <button class="ms-trig" onclick="toggleDrop('dowDropV3')"><span id="dowLblV3">All Days</span><span class="ms-arr">▾</span></button>
+              <div class="ms-drop" id="dowDropV3" style="display:none;">
+                <div class="ms-acts">
+                  <button onclick="msAll('p3vdow','dowLblV3','dowDropV3','renderSV')">All</button>
+                  <button onclick="msNone('p3vdow','dowLblV3','renderSV')">None</button>
+                </div>
+                <div class="ms-list" id="p3vdow">
+                  <label><input type="checkbox" value="Monday" checked onchange="updLbl('p3vdow','dowLblV3');renderSV()"/>Mon</label>
+                  <label><input type="checkbox" value="Tuesday" checked onchange="updLbl('p3vdow','dowLblV3');renderSV()"/>Tue</label>
+                  <label><input type="checkbox" value="Wednesday" checked onchange="updLbl('p3vdow','dowLblV3');renderSV()"/>Wed</label>
+                  <label><input type="checkbox" value="Thursday" checked onchange="updLbl('p3vdow','dowLblV3');renderSV()"/>Thu</label>
+                  <label><input type="checkbox" value="Friday" checked onchange="updLbl('p3vdow','dowLblV3');renderSV()"/>Fri</label>
+                  <label><input type="checkbox" value="Saturday" checked onchange="updLbl('p3vdow','dowLblV3');renderSV()"/>Sat</label>
+                  <label><input type="checkbox" value="Sunday" checked onchange="updLbl('p3vdow','dowLblV3');renderSV()"/>Sun</label>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="fg">
+            <div class="flbl">Scale</div>
+            <div class="tg">
+              <button class="tb active" data-log="0" onclick="setScLog('vert',this)">Linear</button>
+              <button class="tb" data-log="1" onclick="setScLog('vert',this)">Log</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TABLE: Vertical Metrics — FIRST -->
+      <div class="stbl-wrap">
+        <div class="stbl-header">
+          <span class="stbl-title">📊 Vertical Metrics Summary</span>
+          <button class="csv-btn" onclick="downloadCSV('tblVert','vertical_metrics.csv')">⬇ Download CSV</button>
+        </div>
+        <div class="stbl-scroll"><table class="stbl" id="tblVert"><thead></thead><tbody></tbody></table></div>
+      </div>
+
+      <!-- CHART: Scatter — BELOW -->
+      <div class="sc-chart-panel">
+        <div class="ax-panel">
+          <div class="y-ax-wrap">
+            <div class="y-ax-lbl">Y Axis</div>
+            <select class="ax-sel-btn" id="p3vy" onchange="renderSV()">
+              <option value="impressions">Impressions</option>
+              <option value="clicks">Clicks</option>
+              <option value="reactions">Reactions</option>
+              <option value="comments">Comments</option>
+              <option value="reposts">Reposts</option>
+              <option value="followersGained">Followers Gained</option>
+              <option value="followersPerDay" selected>Followers Gained / Day</option>
+              <option value="absFollowers">Total Absolute Followers</option>
+              <option value="postCount">Count of Posts</option>
+              <option value="erOrganic">Organic Engagement Rate</option>
+              <option value="erSponsored">Sponsored Engagement Rate</option>
+              <option value="erTotal">Total Engagement Rate</option>
+            </select>
+          </div>
+          <div class="chart-and-x">
+            <div class="sc-canvas-wrap"><canvas id="chartVert"></canvas></div>
+            <div class="x-ax-wrap">
+              <div class="x-ax-lbl">X Axis</div>
+              <select class="x-ax-sel" id="p3vx" onchange="renderSV()">
+                <option value="impressions" selected>Impressions</option>
+                <option value="clicks">Clicks</option>
+                <option value="reactions">Reactions</option>
+                <option value="comments">Comments</option>
+                <option value="reposts">Reposts</option>
+                <option value="followersGained">Followers Gained</option>
+                <option value="followersPerDay">Followers Gained / Day</option>
+                <option value="absFollowers">Total Absolute Followers</option>
+                <option value="postCount">Count of Posts</option>
+                <option value="erOrganic">Organic Engagement Rate</option>
+                <option value="erSponsored">Sponsored Engagement Rate</option>
+                <option value="erTotal">Total Engagement Rate</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="leg-area" id="vertLeg"></div>
+      </div>
+    </div><!-- /scVert -->
+  </div><!-- /page3 -->
+
+</div><!-- /dashboard -->
+
+<!-- AI CHATBOT -->
+<button id="chatBtn" onclick="toggleChat()" title="Ask AI Analyst">🤖</button>
+<div id="chatPanel">
+  <div class="cp-head">
+    <span class="cp-head-icon">🤖</span>
+    <div>
+      <div class="cp-head-title">ET Analytics AI</div>
+      <div class="cp-head-sub">Powered by Groq · Ask anything about your data</div>
+    </div>
+    <button class="cp-close" onclick="toggleChat()">✕</button>
+  </div>
+  <div class="cp-msgs" id="cpMsgs">
+    <div class="msg bot">👋 Hi! I'm your LinkedIn analytics analyst. Ask me anything about the data currently loaded in the dashboard — comparisons, trends, top performers, recommendations and more.</div>
+  </div>
+  <div class="cp-context" id="cpContext">📊 Reading current dashboard data...</div>
+  <div class="cp-input-row">
+    <textarea id="chatInput" placeholder="Ask a question about your data..." onkeydown="chatKey(event)"></textarea>
+    <button id="chatSend" onclick="sendChat()">Send</button>
+  </div>
+</div>
+
+<!-- Sticky Scatter Tooltip -->
+<div class="sc-tip" id="scTip">
+  <span class="tip-close" onclick="document.getElementById('scTip').style.display='none';tipPinned=false;">✕</span>
+  <div class="tr">Vertical: <span id="ttV"></span></div>
+  <div class="tr">Date: <span id="ttD"></span></div>
+  <div class="tr">Category: <span id="ttCat"></span></div>
+  <div class="tr" id="ttXR"></div>
+  <div class="tr" id="ttYR"></div>
+  <a id="ttL" href="#" target="_blank">↗ Open on LinkedIn</a>
+</div>
+
+<script>
+// ════════════════════════════════════════
+// STATE
+// ════════════════════════════════════════
+const S={
+  met:[],foll:[],vis:[],dateData:[],dateMap:{},absF:{},
+  postSum:{},postLinks:[],postCats:[],
+  chartAType:'bar',aggA:'day',aggB:'day',pType:'all',
+  logPost:false,logVert:false,logA:false,logB:false,scLvl:'post',sec:'A',
+  cA:null,cB:null,cPost:null,cVert:null,spData:[],
+  tblPostRows:[],tblPostSort:{col:'imp',dir:'desc'},
+  VCUR:{ETEntrepreneur:3106,ETCISO:23541,ETGCCWorld:9143,ETHRWorld:106324,ETCIO:43299,ETBrandEquity:79054,ETBFSI:49430,ETEducation:15758},
+  VLIST:['ETEntrepreneur','ETCISO','ETGCCWorld','ETHRWorld','ETCIO','ETBrandEquity','ETBFSI','ETEducation'],
+  VCOL:{ETEntrepreneur:'#EA580C',ETCISO:'#2563EB',ETGCCWorld:'#16A34A',ETHRWorld:'#DB2777',ETCIO:'#CA8A04',ETBrandEquity:'#7C3AED',ETBFSI:'#0E7490',ETEducation:'#15803D'},
+  VCSS:{ETEntrepreneur:'et',ETCISO:'ci',ETGCCWorld:'gc',ETHRWorld:'hr',ETCIO:'cio',ETBrandEquity:'be',ETBFSI:'bf',ETEducation:'edu'}
+};
+const FILES={date:null,vert:null,foll:null,met:null,post:null,vis:null};
+
+// ════════════════════════════════════════
+// FILE UPLOAD
+// ════════════════════════════════════════
+const dz=document.getElementById('dropZone');
+dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('over');});
+dz.addEventListener('dragleave',()=>dz.classList.remove('over'));
+dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('over');handleFiles(e.dataTransfer.files);});
+document.getElementById('fileInput').addEventListener('change',e=>handleFiles(e.target.files));
+
+function handleFiles(files){
+  for(const f of files){
+    const n=f.name.toLowerCase();
+    if(n.includes('dim_date')){FILES.date=f;mark('fi-date',f.name);}
+    else if(n.includes('dim_vert')){FILES.vert=f;mark('fi-vert',f.name);}
+    else if(n.includes('fact_foll')){FILES.foll=f;mark('fi-foll',f.name);}
+    else if(n.includes('fact_met')){FILES.met=f;mark('fi-met',f.name);}
+    else if(n.includes('fact_post')){FILES.post=f;mark('fi-post',f.name);}
+    else if(n.includes('fact_vis')){FILES.vis=f;mark('fi-vis',f.name);}
+  }
+  const all=Object.values(FILES).every(v=>v!==null);
+  document.getElementById('launchBtn').classList.toggle('ready',all);
+}
+function mark(id,name){
+  const el=document.getElementById(id);
+  el.classList.add('ok');
+  el.querySelector('span:first-child').textContent=name;
+  el.querySelector('.fi-badge').textContent='✓ Loaded';
+}
+async function doLaunch(){
+  const prog=document.getElementById('ulProg');
+  prog.innerHTML='<span class="spin-sm"></span>Parsing files…';
+  document.getElementById('launchBtn').disabled=true;
+  try{
+    await parseAll();
+    prog.textContent='';
+    document.getElementById('uploadScreen').style.display='none';
+    const db=document.getElementById('dashboard');
+    db.style.display='flex';db.style.flexDirection='column';
+    init();
+  }catch(err){
+    prog.style.color='#DC2626';
+    prog.textContent='⚠ '+err.message;
+    document.getElementById('launchBtn').disabled=false;
+  }
+}
+function parseCSVText(t){return new Promise((r,j)=>{Papa.parse(t,{header:true,skipEmptyLines:true,dynamicTyping:false,complete:d=>r(d.data),error:e=>j(e)});});}
+function parseCSV(f){return new Promise((r,j)=>{Papa.parse(f,{header:true,skipEmptyLines:true,dynamicTyping:false,complete:d=>r(d.data),error:e=>j(e)});});}
+async function getPostData(file){
+  const n=file.name.toLowerCase();
+  if(n.endsWith('.zip')){
+    const prog=document.getElementById('ulProg');
+    prog.innerHTML='<span class="spin-sm"></span>Unzipping posts file…';
+    const buf=await file.arrayBuffer();
+    const zip=await JSZip.loadAsync(buf);
+    const csvFile=Object.values(zip.files).find(f=>!f.dir&&f.name.toLowerCase().endsWith('.csv'));
+    if(!csvFile)throw new Error('No CSV found inside ZIP');
+    prog.innerHTML='<span class="spin-sm"></span>Parsing posts (large file, please wait)…';
+    const text=await csvFile.async('string');
+    return parseCSVText(text);
+  }
+  return parseCSV(file);
+}
+async function parseAll(){
+  const prog=document.getElementById('ulProg');
+  prog.innerHTML='<span class="spin-sm"></span>Parsing date & vertical files…';
+  const[dR,vR,fR,mR,visR]=await Promise.all([parseCSV(FILES.date),parseCSV(FILES.vert),parseCSV(FILES.foll),parseCSV(FILES.met),parseCSV(FILES.vis)]);
+  for(const r of dR){const dk=r['Date']?r['Date'].split(' ')[0]:null;if(!dk)continue;S.dateData.push(dk);S.dateMap[dk]={dayName:'',weekStartKey:dk,monthKey:dk.slice(0,7)};for(const k of Object.keys(r)){const lk=k.toLowerCase().replace(/\s/g,'');if(lk==='dayname')S.dateMap[dk].dayName=r[k];if(lk==='week'||lk.includes('weekstart'))S.dateMap[dk].weekStartKey=r[k]?r[k].split(' ')[0]:dk;}}
+  S.dateData.sort();
+  for(const r of fR){const dk=r['Date']?r['Date'].split(' ')[0]:null;if(!dk||!r['Vertical'])continue;S.foll.push({v:r['Vertical'].trim(),dk,val:parseFloat(r['Value'])||0});}
+  for(const r of mR){const dk=r['Date']?r['Date'].split(' ')[0]:null;if(!dk||!r['Vertical'])continue;const metric=(r['Metric']||'').trim();if(!metric)continue;const split=(r['Split']||'').trim();S.met.push({v:r['Vertical'].trim(),dk,metric,split,val:parseFloat(r['Value'])||0});}
+  for(const r of visR){const dk=r['Date']?r['Date'].split(' ')[0]:null;if(!dk||!r['Vertical'])continue;const section=(r['Page section']||'').trim();if(section&&section!=='Overview')continue;const metric=(r['Metric']||'').trim();if(!metric)continue;S.vis.push({v:r['Vertical'].trim(),dk,metric,val:parseFloat(r['Value'])||0});}
+  prog.innerHTML='<span class="spin-sm"></span>Parsing posts file (large — please wait)…';
+  const pR=await getPostData(FILES.post);
+  const cm={};if(pR.length>0)for(const k of Object.keys(pR[0]))cm[k.toLowerCase().replace(/\s+/g,'').replace(/[^a-z]/g,'')]=k;
+  const gc=(row,...ns)=>{for(const n of ns){if(row[n]!==undefined)return row[n];const c=cm[n.toLowerCase().replace(/\s+/g,'').replace(/[^a-z]/g,'')];if(c)return row[c];}return '';};
+  const cats=new Set();
+  for(const r of pR){
+    const dk=gc(r,'Date')?gc(r,'Date').split(' ')[0]:null;if(!dk)continue;
+    const audience=(gc(r,'Audience')||'').trim();if(audience&&audience!=='All followers')continue;
+    const link=(gc(r,'Post link','PostLink')||'').trim();const metric=(gc(r,'Metric')||'').trim();const value=parseFloat(gc(r,'Value'))||0;
+    const cat=(gc(r,'Post Category','PostCategory')||'').trim();const title=(gc(r,'Post title','PostTitle')||'').trim();
+    const vert=(gc(r,'Vertical')||'').trim();const ptype=(gc(r,'Post type','PostType')||'').trim();
+    if(cat)cats.add(cat);
+    if(!S.postSum[link]){S.postSum[link]={link,v:vert,dk,cat,title,ptype,imp:0,cl:0,li:0,co:0,re:0,ctrs:0,ctrc:0,erOrg:null,erSpo:null};S.postLinks.push(link);}
+    const ps=S.postSum[link];
+    if(metric==='Impressions')ps.imp+=value;else if(metric==='Clicks')ps.cl+=value;else if(metric==='Likes')ps.li+=value;else if(metric==='Comments')ps.co+=value;else if(metric==='Reposts')ps.re+=value;else if(metric==='Click through rate (CTR)'){ps.ctrs+=value;ps.ctrc++;}else if(metric==='Engagement rate'){if(ptype==='Organic')ps.erOrg=value;else if(ptype==='Sponsored')ps.erSpo=value;}
+  }
+  S.postCats=[...cats].sort();
+  for(const lk of S.postLinks){const ps=S.postSum[lk];ps.ctr=ps.ctrc>0?ps.ctrs/ps.ctrc:null;ps.erPost=ps.erOrg!==null?ps.erOrg:(ps.erSpo!==null?ps.erSpo:null);}
+  buildAbsF();
+}
+function buildAbsF(){
+  const bv={};for(const v of S.VLIST)bv[v]={};
+  for(const r of S.foll){if(!bv[r.v])bv[r.v]={};bv[r.v][r.dk]=(bv[r.v][r.dk]||0)+r.val;}
+  for(const v of S.VLIST){S.absF[v]={};let sfx=0;for(let i=S.dateData.length-1;i>=0;i--){const dk=S.dateData[i];S.absF[v][dk]=S.VCUR[v]-sfx;sfx+=(bv[v][dk]||0);}S.absF[v]['before']=S.VCUR[v]-sfx;}
+}
+
+// ════════════════════════════════════════
+// UTILS
+// ════════════════════════════════════════
+const MO=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function fmt(n,isR=false){if(n===null||n===undefined||isNaN(n))return 'N/A';if(isR)return(n*100).toFixed(2)+'%';if(Math.abs(n)>=1e6)return(n/1e6).toFixed(2)+'M';if(Math.abs(n)>=1e3)return(n/1e3).toFixed(1)+'K';return n%1===0?n.toString():n.toFixed(2);}
+function fmtER(n){if(n===null||n===undefined||isNaN(n)||n===0)return 'N/A';return n.toFixed(2);}
+function isERkey(k){return['erOrganic','erSponsored','erTotal'].includes(k);}
+function isPostERkey(k){return['postERorganic','postERsponsored','postERtotal','erOrg','erSpo','erPost'].includes(k);}
+function lastDk(){return S.dateData[S.dateData.length-1];}
+function addD(dk,n){const d=new Date(dk);d.setDate(d.getDate()+n);return d.toISOString().split('T')[0];}
+function def30(){return addD(lastDk(),-29);}
+function chk(id){return[...document.querySelectorAll('#'+id+' input:checked')].map(c=>c.value);}
+function dow(id){const c=chk(id);return c.length===0?null:c;}
+function pills(id){return[...document.querySelectorAll('#'+id+' .pill.active')].map(b=>b.dataset.v);}
+function aggKey(dk,agg){const dm=S.dateMap[dk];if(!dm)return dk;if(agg==='week')return dm.weekStartKey;if(agg==='month')return dk.slice(0,7);return dk;}
+function aggLbl(ak,agg){if(agg==='month'){const[y,m]=ak.split('-');return MO[parseInt(m)-1]+' '+y;}const[y,m,d]=ak.split('-');return d+' '+MO[parseInt(m)-1];}
+function absAt(v,dk){if(S.absF[v]&&S.absF[v][dk]!==undefined)return S.absF[v][dk];if(dk<S.dateData[0])return S.absF[v]['before']||S.VCUR[v];return S.VCUR[v];}
+
+// ════════════════════════════════════════
+// DEFINITIONS TOGGLE
+// ════════════════════════════════════════
+function toggleDefs(){
+  const p=document.getElementById('defPanel');
+  const b=document.getElementById('defToggleBtn');
+  const isOpen=p.classList.contains('open');
+  p.classList.toggle('open',!isOpen);
+  b.classList.toggle('open',!isOpen);
+  b.textContent=isOpen?'ℹ️ Metric Definitions':'✕ Close Definitions';
+}
+
+// ════════════════════════════════════════
+// DROPDOWN / PILL HELPERS
+// ════════════════════════════════════════
+function togglePill(btn,gid,fn){const g=document.getElementById(gid);if(btn.classList.contains('active')&&g.querySelectorAll('.pill.active').length<=1)return;btn.classList.toggle('active');const av=[...document.querySelectorAll('#'+gid+' .pill.active')].map(b=>b.dataset.v);syncVerts(av);window[fn]();}
+function syncDates(s,e){['p1s','p2as','p2bs','p3ps','p3vs'].forEach(id=>{const el=document.getElementById(id);if(el&&el.value!==s)el.value=s;});['p1e','p2ae','p2be','p3pe','p3ve'].forEach(id=>{const el=document.getElementById(id);if(el&&el.value!==e)el.value=e;});}
+function syncVerts(av){['p2averts','p2bverts','p3pverts'].forEach(gid=>{document.querySelectorAll('#'+gid+' .pill').forEach(btn=>btn.classList.toggle('active',av.includes(btn.dataset.v)));});}
+function toggleDrop(id){const d=document.getElementById(id),open=d.style.display!=='none';document.querySelectorAll('.ms-drop').forEach(x=>x.style.display='none');if(!open)d.style.display='block';}
+function updLbl(lid,lbl){const list=document.getElementById(lid);const checked=[...list.querySelectorAll('input:checked')].map(i=>i.closest('label').textContent.trim());const total=list.querySelectorAll('input').length;const el=document.getElementById(lbl);if(checked.length===0)el.textContent='None';else if(checked.length===total)el.textContent=checked.length<=3?checked.join(', '):'All';else if(checked.length<=3)el.textContent=checked.join(', ');else el.textContent=checked.length+' selected';}
+function msAll(lid,lbl,did,fn){document.querySelectorAll('#'+lid+' input').forEach(i=>i.checked=true);updLbl(lid,lbl);document.getElementById(did).style.display='none';window[fn]();}
+function msNone(lid,lbl,fn){document.querySelectorAll('#'+lid+' input').forEach(i=>i.checked=false);updLbl(lid,lbl);window[fn]();}
+
+// ════════════════════════════════════════
+// CALCULATIONS
+// ════════════════════════════════════════
+function sumM(metric,verts,s,e,dw){let t=0;for(const r of S.met){if(r.metric!==metric||!verts.includes(r.v))continue;if(r.dk<s||r.dk>e)continue;if(dw&&dw.length>0){const dm=S.dateMap[r.dk];if(!dm||!dw.includes(dm.dayName))continue;}t+=r.val;}return t;}
+function sumF(verts,s,e,dw){let t=0;for(const r of S.foll){if(!verts.includes(r.v))continue;if(r.dk<s||r.dk>e)continue;if(dw&&dw.length>0){const dm=S.dateMap[r.dk];if(!dm||!dw.includes(dm.dayName))continue;}t+=r.val;}return t;}
+function sumV(metric,verts,s,e,dw){let t=0;for(const r of S.vis){if(r.metric!==metric||!verts.includes(r.v))continue;if(r.dk<s||r.dk>e)continue;if(dw&&dw.length>0){const dm=S.dateMap[r.dk];if(!dm||!dw.includes(dm.dayName))continue;}t+=r.val;}return t;}
+function avgM(metric,split,verts,s,e,dw){let t=0,c=0;for(const r of S.met){if(r.metric!==metric||!verts.includes(r.v))continue;if(split&&r.split!==split)continue;if(r.dk<s||r.dk>e)continue;if(dw&&dw.length>0){const dm=S.dateMap[r.dk];if(!dm||!dw.includes(dm.dayName))continue;}if(r.val>0){t+=r.val;c++;}}return c>0?t/c:0;}
+function cntD(s,e,dw){let c=0;for(const dk of S.dateData){if(dk<s||dk>e)continue;if(dw&&dw.length>0){const dm=S.dateMap[dk];if(!dm||!dw.includes(dm.dayName))continue;}c++;}return c;}
+function cntP(verts,s,e,cats){const seen=new Set();for(const lk of S.postLinks){const ps=S.postSum[lk];if(!ps||!verts.includes(ps.v))continue;if(ps.dk<s||ps.dk>e)continue;if(cats&&cats.length>0&&!cats.includes(ps.cat))continue;seen.add(lk);}return seen.size;}
+function calcPg(key,vert,s,e,dw){
+  const vf=vert?[vert]:S.VLIST;
+  if(key==='impressions')return sumM('Impressions',vf,s,e,dw);if(key==='clicks')return sumM('Clicks',vf,s,e,dw);if(key==='reactions')return sumM('Reactions',vf,s,e,dw);if(key==='comments')return sumM('Comments',vf,s,e,dw);if(key==='reposts')return sumM('Reposts',vf,s,e,dw);if(key==='followersGained')return sumF(vf,s,e,dw);if(key==='followersPerDay'){const t=sumF(vf,s,e,dw);const d=cntD(s,e,dw);return d>0?t/d:0;}if(key==='absFollowers'){let t=0;for(const v of vf)t+=absAt(v,e);return t;}if(key==='pageViews')return sumV('Page views',vf,s,e,dw);if(key==='uniqueVisitors')return sumV('Unique visitors',vf,s,e,dw);if(key==='postCount')return cntP(vf,s,e,null);if(key==='erOrganic')return avgM('Engagement rate','Organic',vf,s,e,dw);if(key==='erSponsored')return avgM('Engagement rate','Sponsored',vf,s,e,dw);if(key==='erTotal')return avgM('Engagement rate',null,vf,s,e,dw);return 0;
+}
+function calcPo(key,verts,s,e,cats){
+  if(key==='postCount')return cntP(verts,s,e,cats);
+  const fm={postImpressions:'imp',postClicks:'cl',postLikes:'li',postComments:'co',postReposts:'re'};const rm={postCTR:'ctr'};
+  if(fm[key]){let t=0;for(const lk of S.postLinks){const ps=S.postSum[lk];if(!ps||!verts.includes(ps.v))continue;if(ps.dk<s||ps.dk>e)continue;if(cats&&cats.length>0&&!cats.includes(ps.cat))continue;t+=ps[fm[key]]||0;}return t;}
+  if(rm[key]){const f=rm[key];let t=0,c=0;for(const lk of S.postLinks){const ps=S.postSum[lk];if(!ps||!verts.includes(ps.v))continue;if(ps.dk<s||ps.dk>e)continue;if(cats&&cats.length>0&&!cats.includes(ps.cat))continue;if(ps[f]!==null&&ps[f]!==undefined){t+=ps[f];c++;}}return c>0?t/c:0;}
+  if(key==='postERorganic'){let t=0,c=0;for(const lk of S.postLinks){const ps=S.postSum[lk];if(!ps||!verts.includes(ps.v))continue;if(ps.dk<s||ps.dk>e)continue;if(cats&&cats.length>0&&!cats.includes(ps.cat))continue;if(ps.erOrg!==null&&ps.erOrg>0){t+=ps.erOrg;c++;}}return c>0?t/c:0;}
+  if(key==='postERsponsored'){let t=0,c=0;for(const lk of S.postLinks){const ps=S.postSum[lk];if(!ps||!verts.includes(ps.v))continue;if(ps.dk<s||ps.dk>e)continue;if(cats&&cats.length>0&&!cats.includes(ps.cat))continue;if(ps.erSpo!==null&&ps.erSpo>0){t+=ps.erSpo;c++;}}return c>0?t/c:0;}
+  if(key==='postERtotal'){let t=0,c=0;for(const lk of S.postLinks){const ps=S.postSum[lk];if(!ps||!verts.includes(ps.v))continue;if(ps.dk<s||ps.dk>e)continue;if(cats&&cats.length>0&&!cats.includes(ps.cat))continue;const v=ps.erPost;if(v!==null&&v!==undefined&&v>0){t+=v;c++;}}return c>0?t/c:0;}
+  return 0;
+}
+
+// ════════════════════════════════════════
+// INIT
+// ════════════════════════════════════════
+function init(){
+  const last=lastDk(),s30=def30();
+  ['p1s','p2as','p2bs','p3ps','p3vs'].forEach(id=>document.getElementById(id).value=s30);
+  ['p1e','p2ae','p2be','p3pe','p3ve'].forEach(id=>document.getElementById(id).value=last);
+  buildCats('p2bcats','catLblB','catDropB','renderB');
+  buildCats2('p3pcats');
+  buildVertLeg();
+  renderP1();
+}
+function buildCats(lid,lbl,did,fn){const el=document.getElementById(lid);if(!el)return;el.innerHTML='';for(const c of S.postCats){const l=document.createElement('label');l.innerHTML=`<input type="checkbox" value="${c}" checked onchange="updLbl('${lid}','${lbl}');${fn}()"/> ${c}`;el.appendChild(l);}updLbl(lid,lbl);}
+function buildCats2(lid){const el=document.getElementById(lid);if(!el)return;el.innerHTML='';for(const c of S.postCats){const l=document.createElement('label');l.innerHTML=`<input type="checkbox" value="${c}" checked onchange="updLbl('${lid}','catLblP3');renderSP()"/> ${c}`;el.appendChild(l);}updLbl(lid,'catLblP3');}
+function buildVertLeg(){const leg=document.getElementById('vertLeg');if(!leg)return;leg.innerHTML='';for(const v of S.VLIST){const d=document.createElement('div');d.className='leg-item';d.innerHTML=`<span class="leg-dot" style="background:${S.VCOL[v]}"></span>${v}`;leg.appendChild(d);}}
+
+// ════════════════════════════════════════
+// NAV
+// ════════════════════════════════════════
+function switchTab(n){document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',i+1===n));document.querySelectorAll('.page').forEach((p,i)=>p.classList.toggle('active',i+1===n));if(n===2)renderA();if(n===3){if(S.scLvl==='post')renderSP();else renderSV();}}
+function switchSec(s){S.sec=s;document.getElementById('stabA').classList.toggle('active',s==='A');document.getElementById('stabB').classList.toggle('active',s==='B');document.getElementById('secA').style.display=s==='A'?'block':'none';document.getElementById('secB').style.display=s==='B'?'block':'none';if(s==='A')renderA();else renderB();}
+function setLvl(lvl){S.scLvl=lvl;document.getElementById('lvlPost').classList.toggle('active',lvl==='post');document.getElementById('lvlVert').classList.toggle('active',lvl==='vert');document.getElementById('scPost').style.display=lvl==='post'?'block':'none';document.getElementById('scVert').style.display=lvl==='vert'?'block':'none';if(lvl==='post')renderSP();else renderSV();}
+
+// ════════════════════════════════════════
+// PAGE 1 — PERIOD COMPARISON
+// Rows = Verticals | Columns = Metrics
+// ════════════════════════════════════════
+const P1M=[
+  {lbl:'Impressions',key:'impressions'},{lbl:'Clicks',key:'clicks'},{lbl:'Reactions',key:'reactions'},
+  {lbl:'Comments',key:'comments'},{lbl:'Reposts',key:'reposts'},
+  {lbl:'Followers Gained',key:'followersGained'},{lbl:'Followers / Day',key:'followersPerDay'},
+  {lbl:'Abs. Followers',key:'absFollowers'},{lbl:'Post Count',key:'postCount'},
+  {lbl:'Organic ER',key:'erOrganic'},{lbl:'Sponsored ER',key:'erSponsored'},{lbl:'Total ER',key:'erTotal'}
+];
+function renderP1(){
+  const s=document.getElementById('p1s').value||def30();
+  const e=document.getElementById('p1e').value||lastDk();
+  syncDates(s,e);
+  // Header: Vertical col + one col per metric
+  let hRow='<tr><th>Vertical</th>';
+  for(const m of P1M)hRow+=`<th>${m.lbl}</th>`;
+  hRow+='</tr>';
+  document.getElementById('p1head').innerHTML=hRow;
+  // Rows: one per vertical
+  const tb=document.getElementById('p1body');tb.innerHTML='';
+  for(const v of S.VLIST){
+    const css=S.VCSS[v]||'et';
+    let row=`<td><span class="vtag v${css}">${v}</span></td>`;
+    for(const m of P1M){const val=calcPg(m.key,v,s,e,null);row+=`<td><span class="val">${isERkey(m.key)?fmtER(val):fmt(val)}</span></td>`;}
+    const tr=document.createElement('tr');tr.innerHTML=row;tb.appendChild(tr);
+  }
+}
+
+// ════════════════════════════════════════
+// PAGE 2 — TREND
+// ════════════════════════════════════════
+function setAggA(btn){S.aggA=btn.dataset.agg;document.querySelectorAll('#secA .tg .tb[data-agg]').forEach(b=>b.classList.toggle('active',b.dataset.agg===S.aggA));renderA();}
+function setAggB(btn){S.aggB=btn.dataset.agg;document.querySelectorAll('#secB .tg .tb[data-agg]').forEach(b=>b.classList.toggle('active',b.dataset.agg===S.aggB));renderB();}
+function setChartType(btn){S.chartAType=btn.dataset.ct;document.querySelectorAll('[data-ct]').forEach(b=>b.classList.toggle('active',b.dataset.ct===S.chartAType));renderA();}
+function setLogA(btn){S.logA=btn.dataset.loga==='1';document.querySelectorAll('[data-loga]').forEach(b=>b.classList.toggle('active',b.dataset.loga===(S.logA?'1':'0')));renderA();}
+function setLogB(btn){S.logB=btn.dataset.logb==='1';document.querySelectorAll('[data-logb]').forEach(b=>b.classList.toggle('active',b.dataset.logb===(S.logB?'1':'0')));renderB();}
+function getBuckets(s,e,agg,dw){const keys=[],seen=new Set();for(const dk of S.dateData){if(dk<s||dk>e)continue;if(dw&&dw.length>0){const dm=S.dateMap[dk];if(!dm||!dw.includes(dm.dayName))continue;}const ak=aggKey(dk,agg);if(!seen.has(ak)){seen.add(ak);keys.push(ak);}}return keys;}
+function getBDates(ak,s,e,agg,dw){return S.dateData.filter(dk=>{if(dk<s||dk>e)return false;if(dw&&dw.length>0){const dm=S.dateMap[dk];if(!dm||!dw.includes(dm.dayName))return false;}return aggKey(dk,agg)===ak;});}
+
+function renderA(){
+  const metric=document.getElementById('p2ametric').value;
+  const s=document.getElementById('p2as').value||def30(),e=document.getElementById('p2ae').value||lastDk();
+  syncDates(s,e);
+  const verts=pills('p2averts'),dw=dow('p2adow');if(verts.length===0)return;
+  const isE=isERkey(metric);
+  const bks=getBuckets(s,e,S.aggA,dw),lbls=bks.map(ak=>aggLbl(ak,S.aggA));
+  const ds=verts.map(v=>{
+    const data=bks.map(ak=>{const bd=getBDates(ak,s,e,S.aggA,dw);if(bd.length===0)return null;const bs=bd[0],be=bd[bd.length-1];if(metric==='absFollowers')return absAt(v,be);if(metric==='followersPerDay'){const t=sumF([v],bs,be,dw);return bd.length>0?t/bd.length:0;}return calcPg(metric,v,bs,be,dw);});
+    return{label:v,data,backgroundColor:(S.VCOL[v]||'#FF6600')+'BB',borderColor:S.VCOL[v]||'#FF6600',borderWidth:S.chartAType==='line'?2:0,fill:false,tension:.3,pointRadius:S.chartAType==='line'?3:0};
+  });
+  if(S.cA)S.cA.destroy();
+  S.cA=new Chart(document.getElementById('chartA').getContext('2d'),{
+    type:S.chartAType,data:{labels:lbls,datasets:ds},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{labels:{color:'#374151',font:{family:'Inter',size:12}}},tooltip:{backgroundColor:'#fff',borderColor:'#E5E7EB',borderWidth:1,titleColor:'#111827',bodyColor:'#374151',callbacks:{label:c=>' '+c.dataset.label+': '+(isE?fmtER(c.parsed.y):fmt(c.parsed.y))}}},
+      scales:{x:{ticks:{color:'#6B7280',maxRotation:45,font:{size:10}},grid:{color:'#F3F4F6'}},y:{type:S.logA?'logarithmic':'linear',beginAtZero:false,ticks:{color:'#6B7280',callback:v=>isE?fmtER(v):fmt(v)},grid:{color:'#F3F4F6'}}},
+      animation:{duration:300}},
+    plugins:[{id:'bl',afterDatasetsDraw(ch){if(S.chartAType!=='bar')return;const c3=ch.ctx;ch.data.datasets.forEach((d2,di)=>{ch.getDatasetMeta(di).data.forEach((bar,i)=>{const v=d2.data[i];if(v===null||v===undefined)return;c3.save();c3.fillStyle='#374151';c3.font='bold 9px Inter';c3.textAlign='center';c3.textBaseline='bottom';c3.fillText(isE?fmtER(v):fmt(v),bar.x,bar.y-3);c3.restore();});});}}]
+  });
+  buildTblA(lbls,ds,verts);
+}
+
+function renderB(){
+  const metric=document.getElementById('p2bmetric').value;
+  const s=document.getElementById('p2bs').value||def30(),e=document.getElementById('p2be').value||lastDk();
+  syncDates(s,e);
+  const verts=pills('p2bverts'),cats=chk('p2bcats');if(verts.length===0)return;
+  const isR=metric==='postCTR';const isE=isPostERkey(metric);
+  const fmtV=v=>isE?fmtER(v):fmt(v,isR);
+  const bks=getBuckets(s,e,S.aggB,null),lbls=bks.map(ak=>aggLbl(ak,S.aggB));
+  const ds=verts.map(v=>{const data=bks.map(ak=>{const bd=getBDates(ak,s,e,S.aggB,null);if(bd.length===0)return null;return calcPo(metric,[v],bd[0],bd[bd.length-1],cats);});return{label:v,data,backgroundColor:(S.VCOL[v]||'#FF6600')+'CC',borderColor:S.VCOL[v]||'#FF6600',borderWidth:0};});
+  if(S.cB)S.cB.destroy();
+  S.cB=new Chart(document.getElementById('chartB').getContext('2d'),{
+    type:'bar',data:{labels:lbls,datasets:ds},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{labels:{color:'#374151',font:{family:'Inter',size:12}}},tooltip:{backgroundColor:'#fff',borderColor:'#E5E7EB',borderWidth:1,titleColor:'#111827',bodyColor:'#374151',callbacks:{label:c=>' '+c.dataset.label+': '+fmtV(c.parsed.y)}}},
+      scales:{x:{ticks:{color:'#6B7280',maxRotation:45,font:{size:10}},grid:{color:'#F3F4F6'}},y:{type:S.logB?'logarithmic':'linear',beginAtZero:false,ticks:{color:'#6B7280',callback:v=>fmtV(v)},grid:{color:'#F3F4F6'}}},
+      animation:{duration:300}},
+    plugins:[{id:'blB',afterDatasetsDraw(ch){const c3=ch.ctx;ch.data.datasets.forEach((d2,di)=>{ch.getDatasetMeta(di).data.forEach((bar,i)=>{const v=d2.data[i];if(!v)return;c3.save();c3.fillStyle='#374151';c3.font='bold 9px Inter';c3.textAlign='center';c3.textBaseline='bottom';c3.fillText(fmtV(v),bar.x,bar.y-3);c3.restore();});});}}]
+  });
+  buildTblB(lbls,ds,isR);
+}
+
+// ════════════════════════════════════════
+// PAGE 3 — SCATTER
+// ════════════════════════════════════════
+const CC=['#EA580C','#2563EB','#16A34A','#CA8A04','#DB2777','#0E7490','#7C3AED','#FF8844','#44BB88','#6644FF','#FFAA00','#00AACC','#FF44BB','#88CCFF','#FF0099'];
+function cc(cat){return CC[S.postCats.indexOf(cat)%CC.length]||'#888';}
+function setPT(btn){S.pType=btn.dataset.pt;document.querySelectorAll('[data-pt]').forEach(b=>b.classList.toggle('active',b.dataset.pt===S.pType));renderSP();}
+function setScLog(w,btn){btn.closest('.tg').querySelectorAll('.tb').forEach(b=>b.classList.remove('active'));btn.classList.add('active');if(w==='post'){S.logPost=btn.dataset.log==='1';renderSP();}else{S.logVert=btn.dataset.log==='1';renderSV();}}
+const PAX={impressions:'Post Impressions',clicks:'Post Clicks',likes:'Post Likes',comments:'Post Comments',reposts:'Post Reposts',ctr:'Post CTR',erOrg:'Organic Post ER',erSpo:'Sponsored Post ER',erPost:'Total Post ER'};
+const VAX={impressions:'Impressions',clicks:'Clicks',reactions:'Reactions',comments:'Comments',reposts:'Reposts',followersGained:'Followers Gained',followersPerDay:'Followers Gained/Day',absFollowers:'Absolute Followers',postCount:'Count of Posts',erOrganic:'Organic Engagement Rate',erSponsored:'Sponsored Engagement Rate',erTotal:'Total Engagement Rate'};
+function pv(ps,k){return{impressions:ps.imp,clicks:ps.cl,likes:ps.li,comments:ps.co,reposts:ps.re,ctr:ps.ctr,erOrg:ps.erOrg,erSpo:ps.erSpo,erPost:ps.erPost}[k]??null;}
+function jitterVal(val,range,seed){let h=0;for(let i=0;i<seed.length;i++)h=Math.imul(31,h)+seed.charCodeAt(i)|0;const r=((h>>>0)/0xFFFFFFFF)-0.5;return val+r*range*0.04;}
+
+function renderSP(){
+  const xk=document.getElementById('p3px').value,yk=document.getElementById('p3py').value;
+  const s=document.getElementById('p3ps').value||def30(),e=document.getElementById('p3pe').value||lastDk();
+  syncDates(s,e);
+  const verts=pills('p3pverts'),cats=chk('p3pcats'),pt=S.pType;
+  S.spData=[];const cm={};const rawPts=[];
+  for(const lk of S.postLinks){
+    const ps=S.postSum[lk];if(!ps||!verts.includes(ps.v))continue;if(ps.dk<s||ps.dk>e)continue;if(cats.length>0&&!cats.includes(ps.cat))continue;if(pt!=='all'&&ps.ptype!==pt)continue;
+    const xv=pv(ps,xk),yv=pv(ps,yk);if(xv===null||yv===null||isNaN(xv)||isNaN(yv))continue;if(S.logPost&&(xv<=0||yv<=0))continue;rawPts.push({lk,ps,xv,yv});
+  }
+  const xVals=rawPts.map(p=>p.xv),yVals=rawPts.map(p=>p.yv);
+  const xRange=xVals.length>0?Math.max(...xVals)-Math.min(...xVals):0;const yRange=yVals.length>0?Math.max(...yVals)-Math.min(...yVals):0;
+  for(const{lk,ps,xv,yv}of rawPts){const cat=ps.cat||'Unknown';if(!cm[cat])cm[cat]=[];const idx=S.spData.length;const jx=xRange>0?jitterVal(xv,xRange,lk+'x'):xv;const jy=yRange>0?jitterVal(yv,yRange,lk+'y'):yv;const finalX=S.logPost?Math.max(jx,xv*0.01):jx;const finalY=S.logPost?Math.max(jy,yv*0.01):jy;cm[cat].push({x:finalX,y:finalY,_idx:idx});S.spData.push({ps,xv,yv,xk,yk});}
+  const cds=Object.entries(cm).map(([cat,pts])=>({label:cat,data:pts,backgroundColor:cc(cat)+'99',borderColor:cc(cat),borderWidth:1,pointRadius:5,pointHoverRadius:8}));
+  const leg=document.getElementById('postLeg');leg.innerHTML='';
+  for(const cat of Object.keys(cm)){const d=document.createElement('div');d.className='leg-item';d.innerHTML=`<span class="leg-dot" style="background:${cc(cat)}"></span>${cat}`;leg.appendChild(d);}
+  if(S.cPost)S.cPost.destroy();
+  S.cPost=new Chart(document.getElementById('chartPost').getContext('2d'),{
+    type:'scatter',data:{datasets:cds},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{enabled:false,external:ctx=>showTip(ctx,xk,yk)}},
+      scales:{x:{type:S.logPost?'logarithmic':'linear',title:{display:true,text:PAX[xk]||xk,color:'#6B7280',font:{size:11}},ticks:{color:'#6B7280',font:{size:10},callback:v=>isPostERkey(xk)?fmtER(v):fmt(v,xk==='ctr')},grid:{color:'#F3F4F6'}},y:{type:S.logPost?'logarithmic':'linear',title:{display:true,text:PAX[yk]||yk,color:'#6B7280',font:{size:11}},ticks:{color:'#6B7280',callback:v=>isPostERkey(yk)?fmtER(v):fmt(v,yk==='ctr')},grid:{color:'#F3F4F6'}}},
+      animation:{duration:200}}
+  });
+  S.tblPostRows=rawPts.map(r=>r.ps);buildTblPost();buildTblVertPost(verts,s,e,cats,pt);
+}
+
+let tipPinned=false;
+function showTip(ctx,xk,yk){
+  const tip=document.getElementById('scTip');if(tipPinned)return;
+  if(ctx.tooltip.opacity===0){tip.style.display='none';return;}
+  const dp=ctx.tooltip.dataPoints[0];if(!dp)return;const d=S.spData[dp.raw._idx];if(!d)return;const ps=d.ps;
+  document.getElementById('ttV').textContent=ps.v;document.getElementById('ttD').textContent=ps.dk;document.getElementById('ttCat').textContent=ps.cat||'—';
+  document.getElementById('ttXR').innerHTML=(PAX[xk]||xk)+': <span>'+(isPostERkey(xk)?fmtER(d.xv):fmt(d.xv,xk==='ctr'))+'</span>';document.getElementById('ttYR').innerHTML=(PAX[yk]||yk)+': <span>'+(isPostERkey(yk)?fmtER(d.yv):fmt(d.yv,yk==='ctr'))+'</span>';
+  const la=document.getElementById('ttL');if(ps.link){la.href=ps.link;la.style.display='inline-flex';}else{la.style.display='none';}
+  const TW=280,TH=160;const pos=ctx.chart.canvas.getBoundingClientRect();const cx=pos.left+ctx.tooltip.caretX,cy=pos.top+ctx.tooltip.caretY;const vw=window.innerWidth,vh=window.innerHeight;
+  let left=cx+14,top=cy-20;if(left+TW>vw-10)left=cx-TW-14;if(top+TH>vh-10)top=vh-TH-10;if(top<10)top=10;
+  tip.style.left=left+'px';tip.style.top=top+'px';tip.style.display='block';
+}
+document.addEventListener('click',e=>{
+  const tip=document.getElementById('scTip');if(e.target.closest('#scTip'))return;
+  if(e.target.closest('.sc-canvas-wrap')){if(tip.style.display==='block'&&!tipPinned){tipPinned=true;return;}}
+  tipPinned=false;if(!e.target.closest('.ms-wrap'))document.querySelectorAll('.ms-drop').forEach(d=>d.style.display='none');tip.style.display='none';
+});
+
+function renderSV(){
+  const xk=document.getElementById('p3vx').value,yk=document.getElementById('p3vy').value;
+  const s=document.getElementById('p3vs').value||def30(),e=document.getElementById('p3ve').value||lastDk();
+  syncDates(s,e);const dw=dow('p3vdow');
+  const ds=S.VLIST.map(v=>{const xv=calcPg(xk,v,s,e,dw),yv=calcPg(yk,v,s,e,dw);if(S.logVert&&(xv<=0||yv<=0))return null;return{label:v,data:[{x:xv,y:yv,vertical:v}],backgroundColor:(S.VCOL[v])+'CC',borderColor:S.VCOL[v],borderWidth:2,pointRadius:12,pointHoverRadius:14};}).filter(Boolean);
+  if(S.cVert)S.cVert.destroy();
+  S.cVert=new Chart(document.getElementById('chartVert').getContext('2d'),{
+    type:'scatter',data:{datasets:ds},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>[c.raw.vertical,'X: '+fmt(c.raw.x),'Y: '+fmt(c.raw.y)]},backgroundColor:'#fff',borderColor:'#E5E7EB',borderWidth:1,titleColor:'#EA580C',bodyColor:'#374151'}},
+      scales:{x:{type:S.logVert?'logarithmic':'linear',title:{display:true,text:VAX[xk]||xk,color:'#6B7280',font:{size:11}},ticks:{color:'#6B7280',callback:v=>isERkey(xk)?fmtER(v):fmt(v)},grid:{color:'#F3F4F6'}},y:{type:S.logVert?'logarithmic':'linear',title:{display:true,text:VAX[yk]||yk,color:'#6B7280',font:{size:11}},ticks:{color:'#6B7280',callback:v=>isERkey(yk)?fmtER(v):fmt(v)},grid:{color:'#F3F4F6'}}},
+      animation:{duration:200}},
+    plugins:[{id:'vl',afterDatasetsDraw(ch){const c3=ch.ctx;ch.data.datasets.forEach((d2,di)=>{ch.getDatasetMeta(di).data.forEach(pt=>{c3.save();c3.fillStyle=S.VCOL[d2.label]||'#374151';c3.font='bold 11px Inter';c3.textAlign='center';c3.textBaseline='top';c3.fillText(d2.label,pt.x,pt.y+10);c3.restore();});});}}]
+  });
+  buildTblVert(s,e,dw);
+}
+
+// ════════════════════════════════════════
+// TABLE BUILDERS
+// ════════════════════════════════════════
+function buildTblB(lbls,ds,isR){
+  const tbl=document.getElementById('tblB');if(!tbl)return;
+  let h='<tr><th style="text-align:left">Period</th>';
+  for(const d of ds)h+=`<th style="color:${S.VCOL[d.label]||'#999'}">${d.label}</th>`;
+  h+='</tr>';
+  tbl.querySelector('thead').innerHTML=h;
+  let rows='';
+  for(let i=0;i<lbls.length;i++){
+    rows+=`<tr><td class="td-label">${lbls[i]}</td>`;
+    for(const d of ds){const v=d.data[i];rows+=`<td class="num">${v!==null&&v!==undefined?fmt(v,isR):'—'}</td>`;}
+    rows+='</tr>';
+  }
+  tbl.querySelector('tbody').innerHTML=rows;
+}
+function buildTblA(lbls,ds,verts){
+  const tbl=document.getElementById('tblA');if(!tbl)return;
+  let h='<tr><th style="text-align:left">Period</th>';for(const d of ds)h+=`<th>${d.label}</th>`;h+='</tr>';
+  tbl.querySelector('thead').innerHTML=h;
+  let rows='';for(let i=0;i<lbls.length;i++){rows+=`<tr><td class="td-label">${lbls[i]}</td>`;for(const d of ds){const v=d.data[i];rows+=`<td class="num">${v!==null&&v!==undefined?fmt(v):'—'}</td>`;}rows+='</tr>';}
+  tbl.querySelector('tbody').innerHTML=rows;
+}
+const POST_COLS=[
+  {key:'v',label:'Vertical',sortKey:'v'},{key:'title',label:'Post Title',sortKey:'title'},{key:'cat',label:'Category',sortKey:'cat'},
+  {key:'ptype',label:'Post Type',sortKey:'ptype'},{key:'dk',label:'Date',sortKey:'dk'},
+  {key:'imp',label:'Impressions',sortKey:'imp'},{key:'cl',label:'Clicks',sortKey:'cl'},{key:'li',label:'Likes',sortKey:'li'},
+  {key:'co',label:'Comments',sortKey:'co'},{key:'re',label:'Reposts',sortKey:'re'},{key:'ctr',label:'CTR',sortKey:'ctr'},{key:'link',label:'Link',sortKey:null},
+];
+function buildTblPost(){
+  const tbl=document.getElementById('tblPost');if(!tbl)return;
+  const sort=S.tblPostSort;const rows=[...S.tblPostRows];
+  if(sort.col){rows.sort((a,b)=>{let av=a[sort.col],bv=b[sort.col];if(av===null||av===undefined)av=sort.dir==='desc'?-Infinity:Infinity;if(bv===null||bv===undefined)bv=sort.dir==='desc'?-Infinity:Infinity;if(typeof av==='string')return sort.dir==='asc'?av.localeCompare(bv):bv.localeCompare(av);return sort.dir==='asc'?av-bv:bv-av;});}
+  let h='<tr>';for(const c of POST_COLS){let cls='';if(c.sortKey&&c.sortKey===sort.col)cls=sort.dir==='asc'?' sort-asc':' sort-desc';const onclick=c.sortKey?`onclick="sortPostTbl('${c.sortKey}')"`:'';h+=`<th class="${cls}" ${onclick}>${c.label}</th>`;}h+='</tr>';
+  tbl.querySelector('thead').innerHTML=h;
+  let body='';
+  for(const ps of rows){body+='<tr>';for(const c of POST_COLS){const raw=ps[c.key];if(c.key==='title')body+=`<td class="td-name" title="${(ps.title||'').replace(/"/g,'&quot;')}">${raw||'—'}</td>`;else if(c.key==='link')body+=`<td class="td-link">${raw?`<a href="${raw}" target="_blank">↗ Open</a>`:''}</td>`;else if(c.key==='ctr')body+=`<td class="num">${raw!==null&&raw!==undefined?fmt(raw,true):'N/A'}</td>`;else if(['imp','cl','li','co','re'].includes(c.key))body+=`<td class="num">${fmt(raw||0)}</td>`;else if(c.key==='v')body+=`<td class="td-vert" style="color:${S.VCOL[raw]||'#999'}">${raw||'—'}</td>`;else body+=`<td class="td-label">${raw||'—'}</td>`;}body+='</tr>';}
+  tbl.querySelector('tbody').innerHTML=body;
+}
+function sortPostTbl(col){if(S.tblPostSort.col===col){S.tblPostSort.dir=S.tblPostSort.dir==='desc'?'asc':'desc';}else{S.tblPostSort={col,dir:'desc'};}buildTblPost();}
+function buildTblVertPost(verts,s,e,cats,pt){
+  const tbl=document.getElementById('tblVertPost');if(!tbl)return;
+  tbl.querySelector('thead').innerHTML='<tr><th style="text-align:left">Vertical</th><th>Impressions</th><th>Clicks</th><th>Likes</th><th>Comments</th><th>Reposts</th><th>Avg CTR</th><th>Post Count</th></tr>';
+  let body='';
+  for(const v of verts){const agg={imp:0,cl:0,li:0,co:0,re:0,ctrs:0,ctrc:0,cnt:0};for(const lk of S.postLinks){const ps=S.postSum[lk];if(!ps||ps.v!==v)continue;if(ps.dk<s||ps.dk>e)continue;if(cats&&cats.length>0&&!cats.includes(ps.cat))continue;if(pt&&pt!=='all'&&ps.ptype!==pt)continue;agg.imp+=ps.imp||0;agg.cl+=ps.cl||0;agg.li+=ps.li||0;agg.co+=ps.co||0;agg.re+=ps.re||0;if(ps.ctr!==null&&ps.ctr!==undefined){agg.ctrs+=ps.ctr;agg.ctrc++;}agg.cnt++;}
+  const avgCtr=agg.ctrc>0?agg.ctrs/agg.ctrc:null;
+  body+=`<tr><td class="td-vert" style="color:${S.VCOL[v]||'#999'}">${v}</td><td class="num">${fmt(agg.imp)}</td><td class="num">${fmt(agg.cl)}</td><td class="num">${fmt(agg.li)}</td><td class="num">${fmt(agg.co)}</td><td class="num">${fmt(agg.re)}</td><td class="num">${avgCtr!==null?fmt(avgCtr,true):'N/A'}</td><td class="num">${agg.cnt}</td></tr>`;}
+  tbl.querySelector('tbody').innerHTML=body;
+}
+const PG_METRICS=[{key:'impressions',label:'Impressions'},{key:'clicks',label:'Clicks'},{key:'reactions',label:'Reactions'},{key:'comments',label:'Comments'},{key:'reposts',label:'Reposts'},{key:'followersGained',label:'Followers Gained'},{key:'followersPerDay',label:'Followers/Day'},{key:'absFollowers',label:'Abs Followers'},{key:'postCount',label:'Post Count'},{key:'erOrganic',label:'Organic ER'},{key:'erSponsored',label:'Sponsored ER'},{key:'erTotal',label:'Total ER'}];
+function buildTblVert(s,e,dw){
+  const tbl=document.getElementById('tblVert');if(!tbl)return;
+  let h='<tr><th style="text-align:left">Vertical</th>';for(const m of PG_METRICS)h+=`<th>${m.label}</th>`;h+='</tr>';
+  tbl.querySelector('thead').innerHTML=h;
+  let body='';for(const v of S.VLIST){body+=`<tr><td class="td-vert" style="color:${S.VCOL[v]||'#999'}">${v}</td>`;for(const m of PG_METRICS){const val=calcPg(m.key,v,s,e,dw);body+=`<td class="num">${isERkey(m.key)?fmtER(val):fmt(val)}</td>`;}body+='</tr>';}
+  tbl.querySelector('tbody').innerHTML=body;
+}
+
+// ════════════════════════════════════════
+// CSV DOWNLOAD
+// ════════════════════════════════════════
+function downloadCSV(tableId,filename){
+  const tbl=document.getElementById(tableId);if(!tbl)return;
+  const rows=[];const ths=[...tbl.querySelectorAll('thead th')];rows.push(ths.map(th=>th.textContent.replace(/[↑↓]/g,'').trim()));
+  for(const tr of tbl.querySelectorAll('tbody tr')){const cols=[...tr.querySelectorAll('td')].map(td=>{const a=td.querySelector('a');if(a)return a.href;return td.textContent.trim();});rows.push(cols);}
+  const csv=rows.map(r=>r.map(c=>{const s=String(c).replace(/"/g,'""');return /[,"\n]/.test(s)?`"${s}"`:s;}).join(',')).join('\n');
+  const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=filename;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+}
+
+// ════════════════════════════════════════
+// AI CHATBOT
+// ════════════════════════════════════════
+const N8N_URL = 'https://seldonleh.app.n8n.cloud/webhook/linkedin-chat';
+
+function toggleChat(){
+  const p = document.getElementById('chatPanel');
+  p.classList.toggle('open');
+  if(p.classList.contains('open')){
+    updateChatContext();
+    document.getElementById('chatInput').focus();
+  }
+}
+
+function updateChatContext(){
+  const ctx = document.getElementById('cpContext');
+  if(!S.dateData || S.dateData.length === 0){ctx.textContent = '⚠️ No data loaded yet';return;}
+  const s = document.getElementById('p1s').value || def30();
+  const e = document.getElementById('p1e').value || lastDk();
+  ctx.textContent = `📊 Period: ${s} → ${e} · ${S.VLIST.length} verticals loaded`;
+}
+
+function buildDataSnapshot(){
+  const s = document.getElementById('p1s').value || def30();
+  const e = document.getElementById('p1e').value || lastDk();
+  let snap = `Period: ${s} to ${e}. Verticals: ${S.VLIST.join(', ')}.\n\nPeriod Comparison Data:\n`;
+  for(const v of S.VLIST){
+    const imp=calcPg('impressions',v,s,e,null);
+    const cl=calcPg('clicks',v,s,e,null);
+    const re=calcPg('reactions',v,s,e,null);
+    const co=calcPg('comments',v,s,e,null);
+    const rep=calcPg('reposts',v,s,e,null);
+    const fg=calcPg('followersGained',v,s,e,null);
+    const fpd=calcPg('followersPerDay',v,s,e,null);
+    const absF=calcPg('absFollowers',v,s,e,null);
+    const pc=calcPg('postCount',v,s,e,null);
+    const erOrg=calcPg('erOrganic',v,s,e,null);
+    const erSpo=calcPg('erSponsored',v,s,e,null);
+    const erTot=calcPg('erTotal',v,s,e,null);
+    snap+=`${v}: Impressions=${fmt(imp)}, Clicks=${fmt(cl)}, Reactions=${fmt(re)}, Comments=${fmt(co)}, Reposts=${fmt(rep)}, FollowersGained=${fmt(fg)}, Followers/Day=${fpd.toFixed(2)}, AbsFollowers=${fmt(absF)}, Posts=${pc}, OrganicER=${fmtER(erOrg)}, SponsoredER=${fmtER(erSpo)}, TotalER=${fmtER(erTot)}.\n`;
+  }
+  const topPosts=[...S.postLinks].map(lk=>S.postSum[lk]).filter(ps=>ps&&ps.dk>=s&&ps.dk<=e).sort((a,b)=>(b.imp||0)-(a.imp||0)).slice(0,5);
+  if(topPosts.length>0){
+    snap+=`\nTop 5 Posts by Impressions:\n`;
+    for(const ps of topPosts){snap+=`- "${(ps.title||'').slice(0,60)}..." (${ps.v}, ${ps.cat}, ${ps.dk}): Impressions=${fmt(ps.imp)}, Clicks=${fmt(ps.cl)}, Likes=${fmt(ps.li)}, ER=${fmtER(ps.erPost)}.\n`;}
+  }
+  return snap;
+}
+
+function chatKey(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendChat();}}
+
+function appendMsg(text,role){
+  const msgs=document.getElementById('cpMsgs');
+  const div=document.createElement('div');
+  div.className=`msg ${role}`;div.textContent=text;
+  msgs.appendChild(div);msgs.scrollTop=msgs.scrollHeight;
+  return div;
+}
+
+async function sendChat(){
+  const input=document.getElementById('chatInput');
+  const question=input.value.trim();if(!question)return;
+  if(!S.dateData||S.dateData.length===0){appendMsg('⚠️ Please load your data files first before asking questions.','bot');return;}
+  input.value='';
+  appendMsg(question,'user');
+  const btn=document.getElementById('chatSend');btn.disabled=true;
+  const thinking=appendMsg('Analysing your data...','bot thinking');
+  try{
+    const dataSnapshot=buildDataSnapshot();
+    const res=await fetch(N8N_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question,data:dataSnapshot})});
+    if(!res.ok)throw new Error(`Server error: ${res.status}`);
+    const json=await res.json();
+    const answer=json.answer||'No response received.';
+    thinking.remove();appendMsg(answer,'bot');
+  }catch(err){
+    thinking.remove();appendMsg(`⚠️ Error: ${err.message}. Check your n8n workflow is active.`,'bot');
+  }finally{
+    btn.disabled=false;input.focus();updateChatContext();
+  }
+}
+</script>
+</body>
+</html>
