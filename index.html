@@ -1284,24 +1284,92 @@ function updateChatContext(){
 }
 
 function buildDataSnapshot(){
-  const s = document.getElementById('p1s').value || def30();
-  const e = document.getElementById('p1e').value || lastDk();
-  let snap = `Period: ${s} to ${e}. Verticals: ${S.VLIST.join(', ')}.\n\nPeriod Comparison Data:\n`;
-  for(const v of S.VLIST){
-    const imp=calcPg('impressions',v,s,e,null);
-    const cl=calcPg('clicks',v,s,e,null);
-    const re=calcPg('reactions',v,s,e,null);
-    const co=calcPg('comments',v,s,e,null);
-    const rep=calcPg('reposts',v,s,e,null);
-    const fg=calcPg('followersGained',v,s,e,null);
-    const fpd=calcPg('followersPerDay',v,s,e,null);
-    const absF=calcPg('absFollowers',v,s,e,null);
-    const pc=calcPg('postCount',v,s,e,null);
-    const erOrg=calcPg('erOrganic',v,s,e,null);
-    const erSpo=calcPg('erSponsored',v,s,e,null);
-    const erTot=calcPg('erTotal',v,s,e,null);
-    snap+=`${v}: Impressions=${fmt(imp)}, Clicks=${fmt(cl)}, Reactions=${fmt(re)}, Comments=${fmt(co)}, Reposts=${fmt(rep)}, FollowersGained=${fmt(fg)}, Followers/Day=${fpd.toFixed(2)}, AbsFollowers=${fmt(absF)}, Posts=${pc}, OrganicER=${fmtER(erOrg)}, SponsoredER=${fmtER(erSpo)}, TotalER=${fmtER(erTot)}.\n`;
+  const tabs=document.querySelectorAll('.tab');
+  let activeTab=1;
+  tabs.forEach((t,i)=>{if(t.classList.contains('active'))activeTab=i+1;});
+  const s=document.getElementById('p1s').value||def30();
+  const e=document.getElementById('p1e').value||lastDk();
+  let snap='';
+
+  if(activeTab===1){
+    snap+=`ACTIVE PAGE: Period Comparison. Period: ${s} to ${e}. Metrics for all verticals: `;
+    for(const v of S.VLIST){
+      const imp=calcPg('impressions',v,s,e,null);
+      const cl=calcPg('clicks',v,s,e,null);
+      const re=calcPg('reactions',v,s,e,null);
+      const co=calcPg('comments',v,s,e,null);
+      const rep=calcPg('reposts',v,s,e,null);
+      const fg=calcPg('followersGained',v,s,e,null);
+      const fpd=calcPg('followersPerDay',v,s,e,null);
+      const absF=calcPg('absFollowers',v,s,e,null);
+      const pc=calcPg('postCount',v,s,e,null);
+      const erOrg=calcPg('erOrganic',v,s,e,null);
+      const erSpo=calcPg('erSponsored',v,s,e,null);
+      const erTot=calcPg('erTotal',v,s,e,null);
+      snap+=`${v}: Impressions=${fmt(imp)}, Clicks=${fmt(cl)}, Reactions=${fmt(re)}, Comments=${fmt(co)}, Reposts=${fmt(rep)}, FollowersGained=${fmt(fg)}, Followers/Day=${fpd.toFixed(2)}, AbsFollowers=${fmt(absF)}, Posts=${pc}, OrganicER=${fmtER(erOrg)}, SponsoredER=${fmtER(erSpo)}, TotalER=${fmtER(erTot)}. `;
+    }
+
+  } else if(activeTab===2){
+    const section=S.sec||'A';
+    if(section==='A'){
+      const ts=document.getElementById('p2as').value||def30();
+      const te=document.getElementById('p2ae').value||lastDk();
+      const metric=document.getElementById('p2ametric').value;
+      const metricLabel=document.getElementById('p2ametric').options[document.getElementById('p2ametric').selectedIndex].text;
+      const verts=pills('p2averts');
+      const agg=S.aggA||'day';
+      snap+=`ACTIVE PAGE: Trend Analysis - Vertical Level. Period: ${ts} to ${te}. Metric: ${metricLabel}. Aggregation: ${agg}. Selected verticals: ${verts.join(', ')}. Data: `;
+      const bks=getBuckets(ts,te,agg,null);
+      for(const v of verts){
+        const vals=bks.map(ak=>{const bd=getBDates(ak,ts,te,agg,null);if(bd.length===0)return null;return calcPg(metric,v,bd[0],bd[bd.length-1],null);}).filter(x=>x!==null&&x>0);
+        const total=vals.reduce((a,b)=>a+b,0);
+        const avg=vals.length>0?total/vals.length:0;
+        const max=vals.length>0?Math.max(...vals):0;
+        const min=vals.length>0?Math.min(...vals):0;
+        snap+=`${v}: Total=${isERkey(metric)?fmtER(total):fmt(total)}, Avg per ${agg}=${isERkey(metric)?fmtER(avg):fmt(avg)}, Peak=${isERkey(metric)?fmtER(max):fmt(max)}, Low=${isERkey(metric)?fmtER(min):fmt(min)}. `;
+      }
+    } else {
+      const ts=document.getElementById('p2bs').value||def30();
+      const te=document.getElementById('p2be').value||lastDk();
+      const metric=document.getElementById('p2bmetric').value;
+      const metricLabel=document.getElementById('p2bmetric').options[document.getElementById('p2bmetric').selectedIndex].text;
+      const verts=pills('p2bverts');
+      snap+=`ACTIVE PAGE: Trend Analysis - Post Level. Period: ${ts} to ${te}. Metric: ${metricLabel}. Selected verticals: ${verts.join(', ')}. Totals by vertical: `;
+      for(const v of verts){const val=calcPo(metric,[v],ts,te,null);snap+=`${v}=${fmt(val)}. `;}
+      const topPosts=[...S.postLinks].map(lk=>S.postSum[lk]).filter(ps=>ps&&ps.dk>=ts&&ps.dk<=te&&verts.includes(ps.v)).sort((a,b)=>(b.imp||0)-(a.imp||0)).slice(0,5);
+      if(topPosts.length>0){snap+=` Top 5 Posts: `;for(const ps of topPosts){snap+=`"${(ps.title||'').slice(0,50)}" (${ps.v}, ${ps.cat}): Impressions=${fmt(ps.imp)}, Clicks=${fmt(ps.cl)}, ER=${fmtER(ps.erPost)}. `;}}
+    }
+
+  } else if(activeTab===3){
+    const lvl=S.scLvl||'post';
+    if(lvl==='post'){
+      const ts=document.getElementById('p3ps').value||def30();
+      const te=document.getElementById('p3pe').value||lastDk();
+      const xk=document.getElementById('p3px').value;
+      const yk=document.getElementById('p3py').value;
+      const xLabel=document.getElementById('p3px').options[document.getElementById('p3px').selectedIndex].text;
+      const yLabel=document.getElementById('p3py').options[document.getElementById('p3py').selectedIndex].text;
+      const verts=pills('p3pverts');
+      snap+=`ACTIVE PAGE: Scatter - Post Level. Period: ${ts} to ${te}. X Axis: ${xLabel}, Y Axis: ${yLabel}. Selected verticals: ${verts.join(', ')}. Top 10 posts: `;
+      const topPosts=[...S.postLinks].map(lk=>S.postSum[lk]).filter(ps=>ps&&ps.dk>=ts&&ps.dk<=te&&verts.includes(ps.v)).sort((a,b)=>(b.imp||0)-(a.imp||0)).slice(0,10);
+      for(const ps of topPosts){snap+=`"${(ps.title||'').slice(0,50)}" (${ps.v}, ${ps.cat}): ${xLabel}=${fmt(pv(ps,xk))}, ${yLabel}=${fmt(pv(ps,yk))}. `;}
+    } else {
+      const ts=document.getElementById('p3vs').value||def30();
+      const te=document.getElementById('p3ve').value||lastDk();
+      const xk=document.getElementById('p3vx').value;
+      const yk=document.getElementById('p3vy').value;
+      const xLabel=document.getElementById('p3vx').options[document.getElementById('p3vx').selectedIndex].text;
+      const yLabel=document.getElementById('p3vy').options[document.getElementById('p3vy').selectedIndex].text;
+      snap+=`ACTIVE PAGE: Scatter - Vertical Level. Period: ${ts} to ${te}. X Axis: ${xLabel}, Y Axis: ${yLabel}. Vertical positions: `;
+      for(const v of S.VLIST){
+        const xv=calcPg(xk,v,ts,te,null);
+        const yv=calcPg(yk,v,ts,te,null);
+        snap+=`${v}: ${xLabel}=${isERkey(xk)?fmtER(xv):fmt(xv)}, ${yLabel}=${isERkey(yk)?fmtER(yv):fmt(yv)}. `;
+      }
+    }
   }
+  return snap;
+}
   const topPosts=[...S.postLinks].map(lk=>S.postSum[lk]).filter(ps=>ps&&ps.dk>=s&&ps.dk<=e).sort((a,b)=>(b.imp||0)-(a.imp||0)).slice(0,5);
   if(topPosts.length>0){
     snap+=`\nTop 5 Posts by Impressions:\n`;
